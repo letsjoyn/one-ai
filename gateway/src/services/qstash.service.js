@@ -1,16 +1,10 @@
 import { Client } from "@upstash/qstash";
 import axios from "axios";
 import { env } from "../utils/env.js";
+import { logger } from "../utils/logger.js";
 
 function getQstashToken() {
     const token = env.QSTASH_TOKEN;
-
-    console.log("QStash token diagnostics", {
-        isDefined: typeof token !== "undefined",
-        isEmpty: !token,
-        length: token?.length || 0,
-        hasLeadingOrTrailingWhitespace: typeof token === "string" ? token !== token.trim() : false
-    });
 
     if (!token || !token.trim()) {
         throw new Error("QSTASH_TOKEN is missing or empty");
@@ -34,13 +28,13 @@ function isLoopbackTarget(targetUrl) {
 
 export async function queueDocumentProcessing(payload) {
     if (isLoopbackTarget(env.QSTASH_TARGET_URL)) {
-        console.log("QStash target is loopback; using direct local POST fallback");
+        logger.info("QStash target is loopback; using direct local POST fallback");
         const response = await axios.post(env.QSTASH_TARGET_URL, payload, {
             headers: {
                 "Content-Type": "application/json",
                 "x-local-webhook-bypass": "true"
             },
-            timeout: 15000
+            timeout: 300000
         });
 
         return {
@@ -52,7 +46,9 @@ export async function queueDocumentProcessing(payload) {
     const qstash = createQstashClient();
     const response = await qstash.publishJSON({
         url: env.QSTASH_TARGET_URL,
-        body: payload
+        body: payload,
+        retries: 5,
+        timeout: 300
     });
 
     return response;

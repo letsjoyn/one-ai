@@ -2,11 +2,50 @@ name: OmniQuery CI/CD Pipeline
 
 on:
   push:
-    branches: ["main"]
+    branches: ["master", "main"]
   pull_request:
-    branches: ["main"]
+    branches: ["master", "main"]
 
 jobs:
+  test-frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Build Frontend
+        run: npm run build
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Browser End-to-End Test
+        run: npm run test:e2e
+
+      - name: Audit Frontend Dependencies
+        run: npm audit --audit-level=high
+
+      - name: Upload Playwright Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 7
+
   test-gateway:
     runs-on: ubuntu-latest
     defaults:
@@ -24,10 +63,24 @@ jobs:
           cache-dependency-path: gateway/package-lock.json
 
       - name: Install Gateway Dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Smoke Test Gateway Startup
-        run: node --check src/server.js
+      - name: Run Gateway Tests
+        run: npm test
+        env:
+          NODE_ENV: test
+          MONGO_URI: mongodb://localhost:27017/omniquery-test
+          JWT_SECRET: test-jwt-secret-that-is-long-enough-for-ci
+          SUPABASE_URL: https://example.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+          QSTASH_TOKEN: test-qstash-token
+          QSTASH_TARGET_URL: http://localhost:8000/api/process-webhook
+          AI_WORKER_URL: http://localhost:8000
+          INTERNAL_API_KEY: test-internal-api-key
+          METRICS_API_KEY: test-metrics-api-key
+
+      - name: Audit Gateway Dependencies
+        run: npm audit --audit-level=high
 
   test-ai-worker:
     runs-on: ubuntu-latest
@@ -48,11 +101,184 @@ jobs:
 
       - name: Smoke Test FastAPI Import
         run: python -c "from app.main import app; print('ok')"
+        env:
+          ENV: test
+          SUPABASE_URL: https://example.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+          MONGO_URI: mongodb://localhost:27017/omniquery-test
+          QSTASH_CURRENT_SIGNING_KEY: test-current-key
+          QSTASH_NEXT_SIGNING_KEY: test-next-key
+          INTERNAL_API_KEY: test-internal-api-key
+          METRICS_API_KEY: test-metrics-api-key
+          GROQ_API_KEY: test-groq-key
 
-  trigger-deployments:
-    needs: [test-gateway, test-ai-worker]
-    if: github.ref == 'refs/heads/main'
+      - name: Run AI Worker Tests
+        run: python -m unittest discover -s tests -v
+        env:
+          ENV: test
+          SUPABASE_URL: https://example.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+          MONGO_URI: mongodb://localhost:27017/omniquery-test
+          QSTASH_CURRENT_SIGNING_KEY: test-current-key
+          QSTASH_NEXT_SIGNING_KEY: test-next-key
+          INTERNAL_API_KEY: test-internal-api-key
+          METRICS_API_KEY: test-metrics-api-key
+          GROQ_API_KEY: test-groq-key
+
+      - name: Check Python Installation
+        run: |
+          python -m compileall -q app tests
+          python -m pip check
+
+  test-load:
     runs-on: ubuntu-latest
     steps:
-      - name: Output Success
-        run: echo "Code checks passed. Connected free-tier platforms can auto-deploy now."
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1.2.1
+
+      - name: Start Mock API
+        run: |
+          node frontend/e2e/mock-gateway.mjs > mock-gateway.log 2>&1 &
+          for attempt in {1..20}; do
+            if curl -fsS http://127.0.0.1:8089/api/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat mock-gateway.log
+          exit 1
+
+      - name: Run k6 Threshold Test
+        shell: bash
+        run: |
+          conversation_id="$(
+            curl --fail --silent --show-error \
+              --request POST \
+              --header "Content-Type: application/json" \
+              --data '{"title":"CI load test"}' \
+              http://127.0.0.1:8089/api/conversations |
+              jq --raw-output '.conversation.id'
+          )"
+          k6 run \
+            -e BASE_URL=http://127.0.0.1:8089 \
+            -e AUTH_TOKEN=ci-load-token \
+            -e CHAT_CONVERSATION_ID="$conversation_id" \
+            -e VUS=10 \
+            -e DURATION=10s \
+            load/k6-api.js
+
+  trigger-deployments:
+    needs: [test-frontend, test-gateway, test-ai-worker, test-load]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    env:
+      RENDER_WORKER_DEPLOY_HOOK: ${{ secrets.RENDER_WORKER_DEPLOY_HOOK }}
+      RENDER_GATEWAY_DEPLOY_HOOK: ${{ secrets.RENDER_GATEWAY_DEPLOY_HOOK }}
+      WORKER_URL: ${{ secrets.WORKER_URL }}
+      GATEWAY_URL: ${{ secrets.GATEWAY_URL }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      SMOKE_EMAIL: ${{ secrets.SMOKE_EMAIL }}
+      SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Check Deployment Configuration
+        shell: bash
+        run: |
+          required=(
+            RENDER_WORKER_DEPLOY_HOOK
+            RENDER_GATEWAY_DEPLOY_HOOK
+            WORKER_URL
+            GATEWAY_URL
+            VERCEL_TOKEN
+            VERCEL_ORG_ID
+            VERCEL_PROJECT_ID
+          )
+          configured=true
+          for name in "${required[@]}"; do
+            if [[ -z "${!name}" ]]; then
+              configured=false
+            fi
+          done
+          echo "DEPLOY_CONFIGURED=$configured" >> "$GITHUB_ENV"
+          if [[ "$configured" != "true" ]]; then
+            echo "Deployment secrets are incomplete; CI passed and CD was skipped." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Trigger AI Worker Deployment
+        if: env.DEPLOY_CONFIGURED == 'true'
+        run: curl --fail --silent --show-error --request POST "$RENDER_WORKER_DEPLOY_HOOK"
+
+      - name: Wait for AI Worker Health
+        if: env.DEPLOY_CONFIGURED == 'true'
+        shell: bash
+        run: |
+          for attempt in {1..60}; do
+            if curl --fail --silent --show-error "$WORKER_URL/health"; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "AI worker did not become healthy in time."
+          exit 1
+
+      - name: Trigger Gateway Deployment
+        if: env.DEPLOY_CONFIGURED == 'true'
+        run: curl --fail --silent --show-error --request POST "$RENDER_GATEWAY_DEPLOY_HOOK"
+
+      - name: Wait for Gateway Health
+        if: env.DEPLOY_CONFIGURED == 'true'
+        shell: bash
+        run: |
+          for attempt in {1..60}; do
+            if curl --fail --silent --show-error "$GATEWAY_URL/api/health"; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Gateway did not become healthy in time."
+          exit 1
+
+      - name: Deploy Frontend to Vercel
+        id: vercel
+        if: env.DEPLOY_CONFIGURED == 'true'
+        shell: bash
+        run: |
+          mkdir -p frontend/.vercel
+          printf '{"orgId":"%s","projectId":"%s"}\n' \
+            "$VERCEL_ORG_ID" \
+            "$VERCEL_PROJECT_ID" \
+            > frontend/.vercel/project.json
+          deployment_url="$(
+            npx --yes vercel@latest deploy ./frontend \
+              --prod \
+              --yes \
+              --token "$VERCEL_TOKEN" \
+              --build-env VITE_GATEWAY_URL="$GATEWAY_URL" |
+              tail -n 1
+          )"
+          if [[ ! "$deployment_url" =~ ^https:// ]]; then
+            echo "Vercel CLI did not return a deployment URL."
+            exit 1
+          fi
+          echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
+
+      - name: Run Production Smoke Check
+        if: env.DEPLOY_CONFIGURED == 'true'
+        env:
+          FRONTEND_URL: ${{ steps.vercel.outputs.url }}
+        run: node scripts/smoke.mjs

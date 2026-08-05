@@ -1,9 +1,19 @@
 # Frontend
 
-React + Vite dashboard/chat client for OmniQuery.
+React and Vite client with registration, verification, password recovery,
+workspace teams, private account-synced chats, source passages, document
+deletion, responsive navigation, and persistent dark/light modes.
 
-## Scripts
+```powershell
+npm.cmd install
+npm.cmd run dev
+```
 
-- `npm run dev`
-- `npm run build`
-- `npm run preview`
+Production check:
+
+```powershell
+npm.cmd run build
+npm.cmd run test:e2e
+```
+
+Set `VITE_GATEWAY_URL` to the deployed gateway URL before deploying to Vercel.

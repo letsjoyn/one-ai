@@ -1,336 +1,212 @@
-# OmniQuery AI
+# OmniQuery
 
-OmniQuery is an end-to-end asynchronous RAG platform for chatting with uploaded documents.
+OmniQuery is a production-shaped document intelligence workspace for small
+teams. Users create accounts, upload private PDFs, wait for asynchronous
+indexing, and ask questions grounded in their own source passages.
 
-If you upload a large PDF, the app does not block your API request. Instead, it queues document processing in the background and keeps the user experience fast.
+## What Is Built
 
-This repository is built to be free-tier friendly and deployable as a real product foundation.
+- React/Vite frontend with sharp responsive dark and light themes
+- Real JWT email/password accounts with bcrypt password hashing
+- Email verification and one-time password reset links through generic SMTP
+- MongoDB-persisted conversations scoped to the signed-in user
+- Workspace document sharing with admin/member roles and invitations
+- Private Supabase PDF storage with signed uploads
+- QStash retries and signed webhooks for asynchronous processing
+- Tenant-filtered MongoDB Atlas Vector Search retrieval
+- Document deletion with storage cleanup, vector cleanup, and processing tombstones
+- Groq answer generation with source passages
+- JSON request logs, request IDs, Prometheus metrics, and health endpoints
+- Browser E2E coverage, k6 load thresholds, production smoke checks, Dockerfiles
+- CI on pull requests and conditional Render/Vercel CD after `master` or `main`
 
-## What This Project Is
+There are no demo credentials. Create a real account after the provider
+environment variables are configured.
 
-OmniQuery solves this problem:
-
-- Users upload long documents.
-- You need chunking, embeddings, and vector indexing.
-- That work is slow and should not happen inside the web request lifecycle.
-
-So the system is split into three services:
-
-- Frontend: React app for upload + chat UX.
-- Gateway: Express API for signed uploads, queue trigger, and chat proxy.
-- AI Worker: FastAPI service for async processing + RAG answer generation.
-
-## What Is RAG (Simple Explanation)
-
-RAG means Retrieval-Augmented Generation.
-
-Without RAG:
-
-- LLM answers from its pretraining memory.
-- It can hallucinate.
-
-With RAG:
-
-- System retrieves relevant chunks from your own docs.
-- LLM answers using that context.
-- You can show sources/snippets for trust.
-
-In OmniQuery:
-
-- PDFs are parsed and chunked.
-- Chunks are embedded and stored in MongoDB Atlas Vector Search.
-- At question time, top matching chunks are retrieved.
-- Prompt sent to Groq includes retrieved context.
-- UI displays answer + source snippets.
-
-## System Design
-
-```mermaid
-flowchart LR
-	U[User in React UI] --> G1[Gateway: request upload URL]
-	G1 --> S1[Supabase signed upload URL]
-	U --> S2[Direct PDF upload to Supabase]
-	U --> G2[Gateway: upload-complete]
-	G2 --> Q[Upstash QStash]
-	Q --> W[AI Worker webhook]
-	W --> P[PDF parse + chunk + embed]
-	P --> M[(MongoDB Atlas Vector Store)]
-	U --> C1[Gateway: chat question]
-	C1 --> C2[AI Worker: retrieve chunks]
-	C2 --> M
-	C2 --> L[Groq LLM]
-	L --> U
-```
-
-## Why This Architecture
-
-- Fast API responses: upload-complete returns immediately.
-- Better reliability: queue absorbs spikes.
-- Better UX: user is not waiting for indexing.
-- Better scale path: worker can be scaled independently.
-
-## Monorepo Structure
+## Services
 
 ```text
-main-project/
-├── .github/
-│   └── workflows/
-│       └── ci-cd.yml
-├── frontend/
-│   ├── src/
-│   │   ├── api/
-│   │   ├── components/
-│   │   ├── layouts/
-│   │   ├── pages/
-│   │   ├── App.jsx
-│   │   └── main.jsx
-│   ├── package.json
-│   └── tailwind.config.js
-├── gateway/
-│   ├── src/
-│   │   ├── middlewares/
-│   │   ├── routes/
-│   │   ├── services/
-│   │   ├── utils/
-│   │   └── server.js
-│   ├── Dockerfile
-│   └── package.json
-├── ai-worker/
-│   ├── app/
-│   │   ├── api/
-│   │   ├── core/
-│   │   ├── rag/
-│   │   ├── services/
-│   │   └── main.py
-│   ├── Dockerfile
-│   └── requirements.txt
-└── README.md
+frontend  React + Vite
+gateway   Express API, auth, uploads, teams, conversations, metrics
+ai-worker FastAPI, PDF parsing, embeddings, vector retrieval, Groq
+MongoDB   users, conversations, invitations, document status, vectors
+Supabase  private PDF object storage
+QStash    signed asynchronous processing delivery
+Groq      answer generation
 ```
 
-## Technology Stack
-
-- Frontend: React, Vite, Tailwind CSS, Lucide icons
-- Gateway: Node.js, Express, Supabase SDK, Upstash QStash
-- AI Worker: FastAPI, LangChain, HuggingFace embeddings, Groq SDK
-- Data: Supabase Storage, MongoDB Atlas Vector Search
-- CI/CD: GitHub Actions
-- Deployment: Vercel + Render + Koyeb (or Render alternatives)
-
-## End-to-End Data Flow
-
-### 1) Document Ingestion
-
-1. Frontend asks Gateway for signed upload URL.
-2. Gateway creates signed upload token from Supabase.
-3. Frontend uploads PDF directly to Supabase Storage.
-4. Frontend tells Gateway that upload finished.
-5. Gateway publishes event to QStash.
-6. QStash calls AI Worker webhook.
-7. AI Worker verifies QStash signature.
-8. AI Worker downloads PDF, chunks text, creates embeddings.
-9. Chunks and vectors are saved in MongoDB Atlas with tenant metadata.
-
-### 2) Chat Retrieval + Generation
-
-1. Frontend sends user query to Gateway.
-2. Gateway forwards query to AI Worker.
-3. AI Worker runs vector similarity search with tenant filter.
-4. Top chunks are sent as context to Groq model.
-5. Response + source snippets return to frontend.
-
-## Is It Real-World Ready?
-
-Short answer: yes as a strong production starter, not yet final enterprise-grade.
-
-### Already Real-World Patterns
-
-- Async queue between web and AI worker.
-- Signed upload URL (browser never sees service role secret).
-- Webhook signature verification.
-- Tenant metadata filtering for retrieval.
-- Service separation for independent scaling/deployments.
-
-### Still Needed Before High-Scale Enterprise
-
-- Real auth/JWT (replace demo user headers).
-- Persistent job tracking states in DB.
-- Retry policies, dead-letter queue, idempotency keys.
-- Full observability (metrics, traces, alerts, dashboards).
-- Integration and load tests.
-- Rate limiting, WAF rules, secret rotation policy.
-
-## Scalability Guide
-
-### What scales first
-
-- AI Worker CPU/RAM usage during embedding.
-- MongoDB vector index size and query latency.
-- Queue backlog during peak upload spikes.
-
-### How to scale docs processing
-
-- Run multiple AI Worker replicas behind the same webhook endpoint.
-- Use queue-based backpressure and monitor lag.
-- Batch chunk inserts to Mongo efficiently.
-- Add max upload size and page count limits per plan.
-- Store processing status in DB and render real status in UI.
-
-### How to scale chat
-
-- Cache frequent retrieval results.
-- Tune topK and chunk size for latency vs quality.
-- Use smaller/faster models for low-priority requests.
-- Add streaming responses to improve perceived latency.
-
-## Free-Tier Deployment Plan
-
-### Services
-
-- Frontend: Vercel hobby
-- Gateway: Render free web service
-- AI Worker: Koyeb free service (or equivalent)
-- Storage: Supabase free project
-- Queue: Upstash free QStash
-- Vector DB: MongoDB Atlas M0
-- LLM: Groq free API tier
-
-### Deploy Steps
-
-1. Push this repo to GitHub.
-2. Create all free accounts above.
-3. Set environment variables in each platform from .env.example files.
-4. Deploy frontend with root directory frontend.
-5. Deploy gateway with root directory gateway.
-6. Deploy ai-worker with root directory ai-worker using Dockerfile.
-7. Set QStash destination URL to ai-worker webhook endpoint.
-8. Put QStash signing keys into ai-worker environment.
-9. Create MongoDB vector index named vector_index (or match your env var).
-10. Run an end-to-end upload and chat test.
-
-## Local Development Setup
-
-### Prerequisites
+## Local Requirements
 
 - Node.js 20+
-- Python 3.11 (64-bit recommended)
-- pip
+- Python 3.11 available as `py -3.11`
+- A live MongoDB Atlas cluster with an active Atlas Vector Search index
+- Supabase project and private `documents` bucket
+- Groq API key
+- QStash token and current/next signing keys
+- SMTP credentials when `REQUIRE_EMAIL_VERIFICATION=true`
 
-### 1) Install dependencies
+The old MongoDB hostname from the earlier local setup is no longer valid. Copy a
+fresh SRV URI from the current Atlas cluster.
 
-```bash
+## First-Time Setup
+
+```powershell
+cd C:\Users\joynn\OneDrive\Desktop\main-project
+Copy-Item gateway\.env.example gateway\.env
+Copy-Item ai-worker\.env.example ai-worker\.env
+Copy-Item frontend\.env.example frontend\.env
+
 cd gateway
-npm install
+npm.cmd install
 
-cd ../frontend
-npm install
+cd ..\frontend
+npm.cmd install
 
-cd ../ai-worker
-py -m pip install -r requirements.txt
+cd ..\ai-worker
+py -3.11 -m pip install -r requirements.txt
 ```
 
-### 2) Configure environment files
+Fill the environment files. `gateway\.env` and `ai-worker\.env` must share:
 
-- Copy gateway/.env.example to gateway/.env
-- Copy frontend/.env.example to frontend/.env
-- Copy ai-worker/.env.example to ai-worker/.env
+- `MONGO_URI`
+- `MONGO_DB`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_BUCKET`
+- `INTERNAL_API_KEY`
 
-### 3) Run services in separate terminals
+Use different long random values for `JWT_SECRET` and `METRICS_API_KEY`.
+Generate secrets without printing any existing credentials:
 
-```bash
+```powershell
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+```
+
+For a real beta, set `REQUIRE_EMAIL_VERIFICATION=true`, configure SMTP, and set
+`APP_BASE_URL` to the exact frontend origin. Local development may leave
+verification disabled until SMTP is ready.
+
+## Start The Project
+
+After the three `.env` files are filled, run this from the project root:
+
+```powershell
+.\scripts\start-dev.ps1
+```
+
+Open `http://127.0.0.1:5173`. The script starts the worker, gateway, and
+frontend with hidden service windows and writes logs to `.logs`.
+
+Stop them safely with:
+
+```powershell
+.\scripts\stop-dev.ps1
+```
+
+Manual startup, useful when watching live logs:
+
+```powershell
+# Terminal 1
+cd C:\Users\joynn\OneDrive\Desktop\main-project\ai-worker
+py -3.11 -m uvicorn app.main:app --reload --port 8000
+
+# Terminal 2
+cd C:\Users\joynn\OneDrive\Desktop\main-project\gateway
+npm.cmd run dev
+
+# Terminal 3
+cd C:\Users\joynn\OneDrive\Desktop\main-project\frontend
+npm.cmd run dev
+```
+
+Health checks:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
+Invoke-RestMethod http://127.0.0.1:8080/api/health
+```
+
+## Verification
+
+```powershell
 cd gateway
-npm run dev
+npm.cmd test
+npm.cmd audit --audit-level=high
+
+cd ..\ai-worker
+py -3.11 -m unittest discover -s tests -v
+py -3.11 -m compileall -q app tests
+py -3.11 -m pip check
+
+cd ..\frontend
+npm.cmd run build
+npm.cmd run test:e2e
+
+cd ..
+git diff --check
 ```
 
-```bash
-cd ai-worker
-py -m uvicorn app.main:app --reload --port 8000
+The browser test starts a mock gateway automatically and exercises registration,
+upload, ready status, chat sources, document deletion, team invitation, and
+theme switching. It does not create or use production accounts.
+
+## Monitoring
+
+- Gateway health: `/api/health`
+- Worker health: `/health`
+- Gateway Prometheus metrics: `/api/metrics` with `x-metrics-api-key`
+- Worker Prometheus metrics: `/metrics` with `x-metrics-api-key`
+- Every service response includes `X-Request-ID`
+
+Use a real metrics secret in production. Do not expose either metrics endpoint
+publicly without an authentication layer or private network policy.
+
+## Load And Production Smoke
+
+Install k6 through its official installer, then run the API thresholds against
+a staging or mock target:
+
+```powershell
+k6 run -e BASE_URL=http://127.0.0.1:8089 load/k6-api.js
 ```
 
-```bash
-cd frontend
-npm run dev
+The production smoke script always checks frontend, gateway, and optional worker
+health. Add a dedicated test account for authenticated checks:
+
+```powershell
+$env:FRONTEND_URL="https://your-frontend.example"
+$env:GATEWAY_URL="https://your-gateway.example"
+$env:WORKER_URL="https://your-worker.example"
+$env:SMOKE_EMAIL="smoke@example.com"
+$env:SMOKE_PASSWORD="a-long-test-password"
+node scripts/smoke.mjs
 ```
 
-### 4) Open app
+Set `SMOKE_PDF_PATH` to run the full production upload, processing, chat, and
+cleanup round trip.
 
-- http://localhost:5173
+## Deployment
 
-## CI/CD
+Follow [DEPLOYMENT.md](./DEPLOYMENT.md) in order. The deployment uses:
 
-GitHub Actions workflow in .github/workflows/ci-cd.yml does:
+1. MongoDB Atlas and an Atlas Vector Search index
+2. Supabase Storage
+3. Groq
+4. Upstash QStash
+5. SMTP
+6. Render for the worker and gateway
+7. Vercel for the frontend
 
-- Gateway dependency install and smoke checks
-- AI Worker dependency install and import checks
-- Deployment gate after checks pass on main branch
+GitHub Actions runs CI for pull requests and pushes. On a push to `master` or
+`main`, CD runs only when the production environment contains all required
+Render and Vercel secrets; otherwise it records a clean skip after CI passes.
 
 ## Security Notes
 
-- QStash webhook signature validation is mandatory.
-- Keep Supabase service role keys server-side only.
-- Enforce tenant filters in retrieval queries.
-- Add auth and RBAC before multi-user production.
-
-## Competitors and Positioning
-
-### Direct/Platform Competitors
-
-- OpenAI Assistants + file search
-- Azure AI Search + OpenAI
-- AWS Bedrock Knowledge Bases
-- GCP Vertex AI Search and Conversation
-- Pinecone + custom app stack
-
-### Open Source Competitors
-
-- Haystack
-- LlamaIndex starter stacks
-- Dify
-- Flowise
-
-### OmniQuery Position
-
-- Pros: low cost, transparent architecture, full control, easy custom logic.
-- Cons: more DevOps and integration effort than managed all-in-one platforms.
-
-## Cost Reality (No-Nonsense)
-
-- Yes, you can build and launch on free tiers.
-- No, free tiers are not infinite for production scale.
-- Expect to pay later when usage grows (especially compute, DB, model tokens).
-
-## Roadmap to Production Maturity
-
-1. Add authentication and tenant isolation from JWT claims.
-2. Add document/job collections and lifecycle states.
-3. Add retries, DLQ, and idempotent processing keys.
-4. Add observability stack and SLOs.
-5. Add integration tests and load testing.
-6. Add autoscaling rules and cost guardrails.
-
-## FAQ
-
-### Is this architecture overkill for small apps?
-
-For very small apps, yes. For document-heavy AI apps, this async split becomes necessary quickly.
-
-### Can this run fully on one server first?
-
-Yes, but keep the queue and worker separation in code so migration to scale is easy.
-
-### Can I replace MongoDB Atlas vector search?
-
-Yes, you can swap to pgvector, Qdrant, Weaviate, or Pinecone by changing vector store adapters.
-
-## Important Disclaimer
-
-This repo is an engineering blueprint and working starter implementation. It is not yet a compliance-certified enterprise platform out of the box.
-
-## Windows Note (py Launcher)
-
-Use the py launcher for all Python commands on Windows.
-
-- Install Python 3.11 (64-bit) and ensure it is available as py -3.11.
-- This project may fail on Python 3.14 due to dependency wheel/build compatibility.
-- Recommended commands:
-	- py -3.11 -m pip install -r requirements.txt
-	- py -3.11 -m uvicorn app.main:app --reload --port 8000
+- Never commit `.env` files or provider keys.
+- Keep the Supabase service-role key server-side only.
+- Keep the storage bucket private.
+- Protected requests resolve the current MongoDB tenant and role, so removal
+  takes effect immediately even when an old JWT still exists in a browser.
+- Email verification, reset, and invitation tokens are stored only as hashes.
+- Rotate any key that has been pasted into a public issue, chat, or commit.

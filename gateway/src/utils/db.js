@@ -9,7 +9,8 @@ export async function connectDB() {
     }
 
     await mongoose.connect(env.MONGO_URI, {
-        dbName: "omniquery"
+        dbName: env.MONGO_DB,
+        serverSelectionTimeoutMS: 10000
     });
 
     isConnected = true;

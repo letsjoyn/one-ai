@@ -9,8 +9,8 @@ def _format_context(docs) -> str:
     for idx, doc in enumerate(docs, start=1):
         source = doc.metadata.get("source_path", "unknown")
         chunk = doc.metadata.get("chunk_number", "?")
-        sections.append(f"[{idx}] Source={source} chunk={chunk}\\n{doc.page_content}")
-    return "\\n\\n".join(sections)
+        sections.append(f"[{idx}] Source={source} chunk={chunk}\n{doc.page_content}")
+    return "\n\n".join(sections)
 
 
 def build_rag_answer(user_id: str, query: str, top_k: int = 4) -> dict:
@@ -20,10 +20,9 @@ def build_rag_answer(user_id: str, query: str, top_k: int = 4) -> dict:
     docs = vector_store.similarity_search(
         query,
         k=top_k,
-        # pre_filter={"tenant_id": user_id},
+        pre_filter={"tenant_id": {"$eq": user_id}},
     )
 
-    print(f"--- [DEBUG] Query: '{query}' | UserID: '{user_id}' | Found {len(docs)} documents ---")
     context_text = _format_context(docs)
 
     system_prompt = (
@@ -32,9 +31,9 @@ def build_rag_answer(user_id: str, query: str, top_k: int = 4) -> dict:
     )
 
     user_prompt = (
-        f"Question: {query}\\n\\n"
-        "Context passages:\\n"
-        f"{context_text}\\n\\n"
+        f"Question: {query}\n\n"
+        "Context passages:\n"
+        f"{context_text}\n\n"
         "Return a concise answer and reference source ids like [1], [2]."
     )
 

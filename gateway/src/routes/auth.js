@@ -1,32 +1,44 @@
 import express from "express";
-import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { env } from "../utils/env.js";
 import { connectDB } from "../utils/db.js";
+import { ActionToken } from "../models/ActionToken.js";
 import { User } from "../models/User.js";
+import {
+    createActionToken,
+    hashToken,
+    serializeUser,
+    signToken
+} from "../services/auth.service.js";
+import {
+    sendPasswordResetEmail,
+    sendVerificationEmail
+} from "../services/email.service.js";
+import { authRateLimit } from "../middlewares/rateLimit.js";
+import { requireAuth } from "../middlewares/requireAuth.js";
+import { logger } from "../utils/logger.js";
 
 const router = express.Router();
 
 const authSchema = z.object({
-    email: z.string().email(),
-    password: z.string().min(8)
+    email: z.string().trim().email().max(254),
+    password: z.string().min(8).max(128)
 });
 
-function signToken(user) {
-    return jwt.sign(
-        {
-            userId: user._id.toString(),
-            tenantId: user.tenantId,
-            role: user.role
-        },
-        env.JWT_SECRET,
-        { expiresIn: "7d" }
-    );
-}
+const emailSchema = z.object({
+    email: z.string().trim().email().max(254)
+});
 
-router.post("/register", async (req, res, next) => {
+const tokenSchema = z.object({
+    token: z.string().min(20).max(500)
+});
+
+const resetSchema = tokenSchema.extend({
+    password: z.string().min(8).max(128)
+});
+
+router.post("/register", authRateLimit, async (req, res, next) => {
     try {
         await connectDB();
         const parsed = authSchema.parse(req.body);
@@ -41,27 +53,40 @@ router.post("/register", async (req, res, next) => {
         const user = await User.create({
             email,
             passwordHash,
-            tenantId: crypto.randomUUID(),
-            role: "member"
+            tenantId: globalThis.crypto.randomUUID(),
+            role: "admin",
+            emailVerifiedAt: env.REQUIRE_EMAIL_VERIFICATION ? null : new Date()
         });
+
+        if (env.REQUIRE_EMAIL_VERIFICATION) {
+            const verificationToken = await createActionToken(
+                user._id,
+                "email_verification",
+                24 * 60
+            );
+            await sendVerificationEmail(user.email, verificationToken);
+            return res.status(201).json({
+                requiresVerification: true,
+                email: user.email,
+                message: "Check your email to verify your account."
+            });
+        }
 
         const token = signToken(user);
 
         return res.status(201).json({
             token,
-            user: {
-                userId: user._id.toString(),
-                email: user.email,
-                tenantId: user.tenantId,
-                role: user.role
-            }
+            user: serializeUser(user)
         });
     } catch (error) {
+        if (error?.code === 11000) {
+            return res.status(409).json({ error: "Email already registered" });
+        }
         next(error);
     }
 });
 
-router.post("/login", async (req, res, next) => {
+router.post("/login", authRateLimit, async (req, res, next) => {
     try {
         await connectDB();
         const parsed = authSchema.parse(req.body);
@@ -77,17 +102,135 @@ router.post("/login", async (req, res, next) => {
             return res.status(401).json({ error: "Invalid email or password" });
         }
 
+        if (env.REQUIRE_EMAIL_VERIFICATION && !user.emailVerifiedAt) {
+            return res.status(403).json({
+                error: "Verify your email before signing in",
+                code: "EMAIL_NOT_VERIFIED"
+            });
+        }
+
         const token = signToken(user);
 
         return res.status(200).json({
             token,
-            user: {
-                userId: user._id.toString(),
-                email: user.email,
-                tenantId: user.tenantId,
-                role: user.role
-            }
+            user: serializeUser(user)
         });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post("/verify-email", authRateLimit, async (req, res, next) => {
+    try {
+        await connectDB();
+        const parsed = tokenSchema.parse(req.body);
+        const actionToken = await ActionToken.findOneAndDelete({
+            tokenHash: hashToken(parsed.token),
+            type: "email_verification",
+            expiresAt: { $gt: new Date() }
+        });
+
+        if (!actionToken) {
+            return res.status(400).json({ error: "Verification link is invalid or expired" });
+        }
+
+        const user = await User.findByIdAndUpdate(
+            actionToken.userId,
+            { $set: { emailVerifiedAt: new Date() } },
+            { new: true }
+        );
+        if (!user) {
+            return res.status(400).json({ error: "Verification link is invalid or expired" });
+        }
+
+        return res.status(200).json({ message: "Email verified. You can now sign in." });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post("/resend-verification", authRateLimit, async (req, res, next) => {
+    try {
+        await connectDB();
+        const parsed = emailSchema.parse(req.body);
+        const user = await User.findOne({ email: parsed.email.toLowerCase() });
+
+        if (user && !user.emailVerifiedAt) {
+            const verificationToken = await createActionToken(
+                user._id,
+                "email_verification",
+                24 * 60
+            );
+            try {
+                await sendVerificationEmail(user.email, verificationToken);
+            } catch (error) {
+                logger.error({ err: error }, "Failed to resend verification email");
+            }
+        }
+
+        return res.status(202).json({
+            message: "If the account needs verification, a new link has been sent."
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post("/forgot-password", authRateLimit, async (req, res, next) => {
+    try {
+        await connectDB();
+        const parsed = emailSchema.parse(req.body);
+        const user = await User.findOne({ email: parsed.email.toLowerCase() });
+
+        if (user) {
+            const resetToken = await createActionToken(user._id, "password_reset", 30);
+            try {
+                await sendPasswordResetEmail(user.email, resetToken);
+            } catch (error) {
+                logger.error({ err: error }, "Failed to send password reset email");
+            }
+        }
+
+        return res.status(202).json({
+            message: "If an account exists, a password reset link has been sent."
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post("/reset-password", authRateLimit, async (req, res, next) => {
+    try {
+        await connectDB();
+        const parsed = resetSchema.parse(req.body);
+        const actionToken = await ActionToken.findOneAndDelete({
+            tokenHash: hashToken(parsed.token),
+            type: "password_reset",
+            expiresAt: { $gt: new Date() }
+        });
+
+        if (!actionToken) {
+            return res.status(400).json({ error: "Password reset link is invalid or expired" });
+        }
+
+        const passwordHash = await bcrypt.hash(parsed.password, 12);
+        await User.findByIdAndUpdate(actionToken.userId, {
+            $set: { passwordHash }
+        });
+        await ActionToken.deleteMany({
+            userId: actionToken.userId,
+            type: "password_reset"
+        });
+
+        return res.status(200).json({ message: "Password updated. You can now sign in." });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.get("/me", requireAuth, async (req, res, next) => {
+    try {
+        return res.status(200).json({ user: serializeUser(req.authUser) });
     } catch (error) {
         next(error);
     }

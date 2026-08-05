@@ -4,30 +4,40 @@ import { z } from "zod";
 import { env } from "../utils/env.js";
 import { createSignedUploadUrl } from "../services/supabase.service.js";
 import { queueDocumentProcessing } from "../services/qstash.service.js";
-import { getDocumentStatuses } from "../services/aiworker.service.js";
+import { deleteDocumentData, getDocumentStatuses } from "../services/aiworker.service.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
+import { documentOperations } from "../monitoring/metrics.js";
 
 const router = express.Router();
 
 const requestUploadSchema = z.object({
-    fileName: z.string().min(1),
-    mimeType: z.string().default("application/pdf")
+    fileName: z.string().min(1).max(255),
+    mimeType: z.string().default("application/pdf"),
+    fileSize: z.number().int().positive()
 });
 
 const uploadCompleteSchema = z.object({
-    filePath: z.string().min(1),
-    documentId: z.string().min(1)
+    filePath: z.string().min(1).max(1024),
+    documentId: z.string().uuid(),
+    fileName: z.string().trim().min(1).max(255)
 });
 
 function getTenantId(req) {
-    return req.user?.tenantId || `tenant-${req.userId || "demo-user"}`;
+    return req.user.tenantId;
 }
 
 async function handleUploadRequest(req, res, next) {
     try {
         const parsed = requestUploadSchema.parse(req.body);
-        if (!parsed.mimeType.includes("pdf") && !parsed.fileName.toLowerCase().endsWith(".pdf")) {
+        const hasPdfExtension = parsed.fileName.toLowerCase().endsWith(".pdf");
+        const supportedMimeType = ["application/pdf", "application/x-pdf"].includes(parsed.mimeType);
+        if (!hasPdfExtension || !supportedMimeType) {
             return res.status(400).json({ error: "Only PDF files are supported." });
+        }
+        if (parsed.fileSize > env.MAX_UPLOAD_BYTES) {
+            return res.status(413).json({
+                error: `PDF exceeds the ${Math.floor(env.MAX_UPLOAD_BYTES / 1024 / 1024)} MB upload limit.`
+            });
         }
         const sanitizedFileName = parsed.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
         const requestedFilename = `${Date.now()}-${crypto.randomUUID()}-${sanitizedFileName}`;
@@ -39,7 +49,7 @@ async function handleUploadRequest(req, res, next) {
         res.status(200).json({
             filePath,
             token: signed.token,
-            signedUrl: `${env.SUPABASE_URL}/storage/v1/object/upload/sign/${env.SUPABASE_BUCKET}/${signed.path}?token=${signed.token}`,
+            signedUrl: signed.signedUrl,
             mimeType: parsed.mimeType
         });
     } catch (error) {
@@ -49,34 +59,54 @@ async function handleUploadRequest(req, res, next) {
 
 router.post("/upload-url", requireAuth, handleUploadRequest);
 
-router.post("/request-upload", handleUploadRequest);
-
-router.post("/upload-complete", async (req, res, next) => {
+router.post("/upload-complete", requireAuth, async (req, res, next) => {
     try {
         const parsed = uploadCompleteSchema.parse(req.body);
         const tenantId = getTenantId(req);
+        const expectedPrefix = `tenants/${tenantId}/`;
+        if (!parsed.filePath.startsWith(expectedPrefix)) {
+            return res.status(403).json({ error: "Document path does not belong to this workspace" });
+        }
 
         const response = await queueDocumentProcessing({
             userId: tenantId,
             filePath: parsed.filePath,
-            documentId: parsed.documentId
+            documentId: parsed.documentId,
+            displayName: parsed.fileName
         });
 
+        documentOperations.inc({ operation: "queue", result: "success" });
         res.status(200).json({
             message: "Document queued for AI processing.",
             messageId: response.messageId
         });
     } catch (error) {
+        documentOperations.inc({ operation: "queue", result: "error" });
         next(error);
     }
 });
 
-router.get("/", async (req, res, next) => {
+router.get("/", requireAuth, async (req, res, next) => {
     try {
         const limit = Number.parseInt(req.query.limit || "50", 10);
         const data = await getDocumentStatuses(getTenantId(req), Number.isNaN(limit) ? 50 : limit);
         res.status(200).json(data);
     } catch (error) {
+        next(error);
+    }
+});
+
+router.delete("/:documentId", requireAuth, async (req, res, next) => {
+    try {
+        const documentId = z.string().uuid().parse(req.params.documentId);
+        const result = await deleteDocumentData(getTenantId(req), documentId);
+        documentOperations.inc({ operation: "delete", result: "success" });
+        res.status(200).json(result);
+    } catch (error) {
+        documentOperations.inc({ operation: "delete", result: "error" });
+        if (error.response?.status === 404) {
+            return res.status(404).json({ error: "Document not found" });
+        }
         next(error);
     }
 });

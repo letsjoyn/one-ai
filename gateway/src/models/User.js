@@ -22,6 +22,10 @@ const userSchema = new mongoose.Schema(
             type: String,
             enum: ["admin", "member"],
             default: "member"
+        },
+        emailVerifiedAt: {
+            type: Date,
+            default: null
         }
     },
     { timestamps: true }

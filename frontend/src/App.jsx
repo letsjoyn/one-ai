@@ -1,33 +1,56 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Redirect, Route, Switch } from "wouter";
 import AppShell from "./layouts/AppShell";
 import DashboardPage from "./pages/DashboardPage";
 import ChatPage from "./pages/ChatPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import VerifyEmailPage from "./pages/VerifyEmailPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
+import AcceptInvitePage from "./pages/AcceptInvitePage";
 import { AuthProvider } from "./context/AuthContext";
+import { ThemeProvider } from "./context/ThemeContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 function App() {
     return (
-        <AuthProvider>
-            <Routes>
-                <Route path="/login" element={<LoginPage />} />
-                <Route path="/register" element={<RegisterPage />} />
-                <Route
-                    element={
+        <ThemeProvider>
+            <AuthProvider>
+                <Switch>
+                    <Route path="/login" component={LoginPage} />
+                    <Route path="/register" component={RegisterPage} />
+                    <Route path="/verify-email" component={VerifyEmailPage} />
+                    <Route path="/forgot-password" component={ForgotPasswordPage} />
+                    <Route path="/reset-password" component={ResetPasswordPage} />
+                    <Route path="/accept-invite" component={AcceptInvitePage} />
+                    <Route path="/dashboard">
                         <ProtectedRoute>
-                            <AppShell />
+                            <AppShell>
+                                <DashboardPage />
+                            </AppShell>
                         </ProtectedRoute>
-                    }
-                >
-                    <Route path="/dashboard" element={<DashboardPage />} />
-                    <Route path="/chat" element={<ChatPage />} />
-                    <Route path="/settings" element={<SettingsPage />} />
-                </Route>
-                <Route path="*" element={<Navigate to="/login" replace />} />
-            </Routes>
-        </AuthProvider>
+                    </Route>
+                    <Route path="/chat">
+                        <ProtectedRoute>
+                            <AppShell>
+                                <ChatPage />
+                            </AppShell>
+                        </ProtectedRoute>
+                    </Route>
+                    <Route path="/settings">
+                        <ProtectedRoute>
+                            <AppShell>
+                                <SettingsPage />
+                            </AppShell>
+                        </ProtectedRoute>
+                    </Route>
+                    <Route>
+                        <Redirect to="/login" replace />
+                    </Route>
+                </Switch>
+            </AuthProvider>
+        </ThemeProvider>
     );
 }
 

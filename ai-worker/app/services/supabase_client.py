@@ -23,3 +23,9 @@ def download_pdf_to_tempfile(file_path: str) -> str:
         tmp.write(data)
 
     return temp_path
+
+
+def delete_file(file_path: str) -> None:
+    settings = get_settings()
+    supabase = get_supabase_client()
+    supabase.storage.from_(settings.supabase_bucket).remove([file_path])

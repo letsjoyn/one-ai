@@ -26,8 +26,6 @@ const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
 });
 
 export async function createSignedUploadUrl(filePath) {
-    console.log("Supabase URL:", env.SUPABASE_URL);
-
     const { data, error } = await supabase.storage
         .from(env.SUPABASE_BUCKET)
         .createSignedUploadUrl(filePath);

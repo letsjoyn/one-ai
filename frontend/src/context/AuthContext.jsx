@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
+import { acceptInvitation } from "../api/team";
 
 const AuthContext = createContext(null);
 
@@ -20,6 +21,7 @@ export function AuthProvider({ children }) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+        let cancelled = false;
         const storedToken = localStorage.getItem("token");
         if (!storedToken) {
             setLoading(false);
@@ -29,21 +31,44 @@ export function AuthProvider({ children }) {
         const decoded = decodeToken(storedToken);
         if (decoded?.userId && decoded?.tenantId) {
             setToken(storedToken);
-            setUser({
-                userId: decoded.userId,
-                tenantId: decoded.tenantId,
-                role: decoded.role || "member",
-                email: decoded.email || localStorage.getItem("email") || "unknown"
-            });
+            api.get("/api/auth/me")
+                .then((response) => {
+                    if (!cancelled) {
+                        setUser(response.data.user);
+                    }
+                })
+                .catch((error) => {
+                    if (!cancelled && error?.response?.status === 401) {
+                        localStorage.removeItem("token");
+                        localStorage.removeItem("email");
+                        setToken("");
+                        setUser(null);
+                    } else if (!cancelled) {
+                        setUser({
+                            userId: decoded.userId,
+                            tenantId: decoded.tenantId,
+                            role: decoded.role || "member",
+                            email: decoded.email || localStorage.getItem("email") || "unknown"
+                        });
+                    }
+                })
+                .finally(() => {
+                    if (!cancelled) {
+                        setLoading(false);
+                    }
+                });
         } else {
             localStorage.removeItem("token");
             localStorage.removeItem("email");
+            setLoading(false);
         }
 
-        setLoading(false);
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
-    async function persistAuth(response) {
+    function persistAuth(response) {
         const nextToken = response.token;
         const nextUser = response.user || decodeToken(nextToken);
 
@@ -57,20 +82,29 @@ export function AuthProvider({ children }) {
             userId: nextUser?.userId,
             tenantId: nextUser?.tenantId,
             role: nextUser?.role || "member",
-            email: nextUser?.email || decodeToken(nextToken)?.email || localStorage.getItem("email") || "unknown"
+            email: nextUser?.email || decodeToken(nextToken)?.email || localStorage.getItem("email") || "unknown",
+            emailVerified: Boolean(nextUser?.emailVerified)
         });
     }
 
     async function login(email, password) {
         const response = await api.post("/api/auth/login", { email, password });
-        await persistAuth(response.data);
+        persistAuth(response.data);
         return response.data;
     }
 
     async function register(email, password) {
         const response = await api.post("/api/auth/register", { email, password });
-        await persistAuth(response.data);
+        if (response.data.token) {
+            persistAuth(response.data);
+        }
         return response.data;
+    }
+
+    async function acceptInvite(tokenValue, password) {
+        const response = await acceptInvitation(tokenValue, password);
+        persistAuth(response);
+        return response;
     }
 
     function logout() {
@@ -88,6 +122,7 @@ export function AuthProvider({ children }) {
         loading,
         login,
         register,
+        acceptInvite,
         logout
     }), [loading, token, user]);
 

@@ -3,7 +3,10 @@ import { env } from "../utils/env.js";
 
 const aiClient = axios.create({
     baseURL: env.AI_WORKER_URL,
-    timeout: 120000
+    timeout: 120000,
+    headers: {
+        "X-Internal-API-Key": env.INTERNAL_API_KEY
+    }
 });
 
 export async function queryRag(payload) {
@@ -17,6 +20,13 @@ export async function getDocumentStatuses(userId, limit = 50) {
             userId,
             limit
         }
+    });
+    return response.data;
+}
+
+export async function deleteDocumentData(userId, documentId) {
+    const response = await aiClient.delete(`/api/documents/${documentId}`, {
+        params: { userId }
     });
     return response.data;
 }
