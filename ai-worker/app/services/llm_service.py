@@ -20,7 +20,7 @@ def build_rag_answer(user_id: str, query: str, top_k: int = 4) -> dict:
     docs = vector_store.similarity_search(
         query,
         k=top_k,
-        pre_filter={"tenant_id": {"$eq": user_id}},
+        pre_filter={"tenant_id": user_id},
     )
 
     context_text = _format_context(docs)

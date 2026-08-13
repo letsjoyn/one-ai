@@ -34,6 +34,7 @@ const rawEnvSchema = z.preprocess((value) => {
     FRONTEND_ORIGIN: z.string().default("http://localhost:5173"),
     MONGO_URI: trimString,
     MONGO_DB: z.string().default("omniquery"),
+    DNS_SERVERS: optionalString,
     JWT_SECRET: trimString,
     SUPABASE_URL: z.string().url(),
     SUPABASE_SERVICE_ROLE_KEY: trimString,

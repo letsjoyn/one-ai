@@ -37,7 +37,7 @@ class LlmServiceTests(unittest.TestCase):
         vector_store.similarity_search.assert_called_once_with(
             "When does it renew?",
             k=3,
-            pre_filter={"tenant_id": {"$eq": "tenant-1"}},
+            pre_filter={"tenant_id": "tenant-1"},
         )
         request = groq.return_value.chat.completions.create.call_args.kwargs
         self.assertIn("\n\nContext passages:\n", request["messages"][1]["content"])
