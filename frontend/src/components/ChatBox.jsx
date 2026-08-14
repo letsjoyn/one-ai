@@ -9,6 +9,89 @@ const promptIdeas = [
     "What information is missing?"
 ];
 
+function renderInlineMarkdown(text) {
+    const parts = String(text).split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+
+    return parts.map((part, index) => {
+        if (part.startsWith("**") && part.endsWith("**")) {
+            return <strong key={index}>{part.slice(2, -2)}</strong>;
+        }
+        if (part.startsWith("*") && part.endsWith("*")) {
+            return <em key={index}>{part.slice(1, -1)}</em>;
+        }
+        return part;
+    });
+}
+
+function renderAssistantMessage(text) {
+    const blocks = [];
+    const lines = String(text).split(/\r?\n/);
+    let listItems = [];
+    let orderedItems = [];
+
+    function flushLists() {
+        if (listItems.length) {
+            blocks.push(
+                <ul key={`ul-${blocks.length}`} className="my-2 list-disc space-y-1 pl-5">
+                    {listItems.map((item, index) => (
+                        <li key={index}>{renderInlineMarkdown(item)}</li>
+                    ))}
+                </ul>
+            );
+            listItems = [];
+        }
+
+        if (orderedItems.length) {
+            blocks.push(
+                <ol key={`ol-${blocks.length}`} className="my-2 list-decimal space-y-1 pl-5">
+                    {orderedItems.map((item, index) => (
+                        <li key={index}>{renderInlineMarkdown(item)}</li>
+                    ))}
+                </ol>
+            );
+            orderedItems = [];
+        }
+    }
+
+    lines.forEach((line, index) => {
+        const trimmed = line.trim();
+        const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/);
+        const orderedMatch = trimmed.match(/^\d+[.)]\s+(.+)$/);
+
+        if (!trimmed) {
+            flushLists();
+            blocks.push(<div key={`space-${index}`} className="h-2" />);
+            return;
+        }
+
+        if (bulletMatch) {
+            if (orderedItems.length) {
+                flushLists();
+            }
+            listItems.push(bulletMatch[1]);
+            return;
+        }
+
+        if (orderedMatch) {
+            if (listItems.length) {
+                flushLists();
+            }
+            orderedItems.push(orderedMatch[1]);
+            return;
+        }
+
+        flushLists();
+        blocks.push(
+            <p key={`p-${index}`} className="mb-2 last:mb-0">
+                {renderInlineMarkdown(trimmed)}
+            </p>
+        );
+    });
+
+    flushLists();
+    return blocks;
+}
+
 function ChatBox({ conversation, onReplace }) {
     const [input, setInput] = useState("");
     const [busy, setBusy] = useState(false);
@@ -99,9 +182,11 @@ function ChatBox({ conversation, onReplace }) {
                                     <p className="mb-2 text-xs font-semibold text-secondary">
                                         {message.role === "user" ? "You" : "OmniQuery"}
                                     </p>
-                                    <p className={`whitespace-pre-wrap text-sm leading-7 ${message.error ? "text-red-600 dark:text-red-400" : "text-primary"}`}>
-                                        {message.text}
-                                    </p>
+                                    <div className={`text-sm leading-7 ${message.error ? "whitespace-pre-wrap text-red-600 dark:text-red-400" : "text-primary"}`}>
+                                        {message.role === "assistant" && !message.error
+                                            ? renderAssistantMessage(message.text)
+                                            : message.text}
+                                    </div>
                                     {message.role === "assistant" && <SourceAccordion sources={message.sources} />}
                                 </div>
                             </article>
