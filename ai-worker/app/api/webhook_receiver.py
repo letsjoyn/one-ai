@@ -7,7 +7,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
 from app.core.security import get_qstash_receiver
-from app.rag.document_processor import process_and_embed_pdf
+from app.rag.document_processor import process_and_embed_file
 from app.services.document_status_service import (
     claim_document_processing,
     ensure_document_status,
@@ -24,7 +24,9 @@ logger = logging.getLogger(__name__)
 def public_processing_error(exc: Exception) -> str:
     safe_messages = (
         "The PDF does not contain extractable text",
+        "The document does not contain extractable text",
         "PDF exceeds the ",
+        "Unsupported file type",
     )
     message = str(exc)
     if message.startswith(safe_messages):
@@ -37,10 +39,11 @@ def process_document_job(
     user_id: str,
     document_id: str,
     display_name: str | None = None,
+    mime_type: str | None = None,
 ) -> str:
     started_at = time.perf_counter()
     try:
-        result = process_and_embed_pdf(file_path, user_id, document_id)
+        result = process_and_embed_file(file_path, user_id, document_id, mime_type)
         if result.get("status") == "deleted":
             DOCUMENT_PROCESSING.labels(result="deleted").inc()
             DOCUMENT_PROCESSING_DURATION.labels(result="deleted").observe(
@@ -121,6 +124,7 @@ async def process_document_webhook(request: Request):
     user_id = payload.get("userId")
     document_id = payload.get("documentId")
     display_name = payload.get("displayName")
+    mime_type = payload.get("mimeType")
 
     if not file_path or not user_id or not document_id:
         raise HTTPException(status_code=400, detail="Missing filePath, userId or documentId")
@@ -156,6 +160,7 @@ async def process_document_webhook(request: Request):
         user_id,
         document_id,
         display_name,
+        mime_type,
     )
 
     return {

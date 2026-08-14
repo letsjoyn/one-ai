@@ -2,6 +2,10 @@ import { AlertCircle, CheckCircle2, FileText, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { markUploadComplete, requestUpload, uploadToSupabase } from "../api/documents";
 
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+const ACCEPTED_EXTENSIONS = [".pdf", ".txt", ".md", ".markdown"];
+const ACCEPTED_FORMAT_LABEL = "PDF, TXT, MD";
+
 function Uploader({ onUploaded }) {
     const inputRef = useRef(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -13,12 +17,15 @@ function Uploader({ onUploaded }) {
     async function handleFile(file) {
         setMessage(null);
 
-        if (!file || !file.name.toLowerCase().endsWith(".pdf")) {
-            setMessage({ type: "error", text: "Choose a PDF file to continue." });
+        const fileNameLower = file?.name?.toLowerCase() || "";
+        const supportedExtension = ACCEPTED_EXTENSIONS.some((extension) => fileNameLower.endsWith(extension));
+
+        if (!file || !supportedExtension) {
+            setMessage({ type: "error", text: `Choose one of these formats: ${ACCEPTED_FORMAT_LABEL}.` });
             return;
         }
-        if (file.size > 25 * 1024 * 1024) {
-            setMessage({ type: "error", text: "PDF files must be 25 MB or smaller." });
+        if (file.size > MAX_UPLOAD_BYTES) {
+            setMessage({ type: "error", text: "Files must be 25 MB or smaller." });
             return;
         }
 
@@ -34,7 +41,7 @@ function Uploader({ onUploaded }) {
             await uploadToSupabase(file, uploadInfo.signedUrl);
             setProgress(75);
 
-            await markUploadComplete(uploadInfo.filePath, documentId, file.name);
+            await markUploadComplete(uploadInfo.filePath, documentId, file.name, uploadInfo.mimeType);
             setProgress(100);
 
             onUploaded({
@@ -84,7 +91,7 @@ function Uploader({ onUploaded }) {
                     {busy ? <FileText size={20} /> : <Upload size={20} />}
                 </span>
                 <p className="mt-5 text-sm font-semibold">
-                    {busy ? "Uploading document" : "Drop PDF or select file"}
+                    {busy ? "Uploading document" : "Drop file or select document"}
                 </p>
                 <p className="mt-2 max-w-[260px] text-xs leading-5 text-secondary">
                     {busy && fileName ? fileName : "Files are sent directly to configured storage before indexing."}
@@ -92,7 +99,7 @@ function Uploader({ onUploaded }) {
                 <input
                     ref={inputRef}
                     type="file"
-                    accept=".pdf,application/pdf"
+                    accept=".pdf,.txt,.md,.markdown,application/pdf,application/x-pdf,text/plain,text/markdown"
                     className="hidden"
                     onChange={(event) => handleFile(event.target.files?.[0])}
                 />
@@ -101,7 +108,7 @@ function Uploader({ onUploaded }) {
             <div className="p-4">
                 <div className="flex items-center justify-between text-xs">
                     <span className="text-secondary">{busy ? "Upload progress" : "Accepted format"}</span>
-                    <span className="font-medium tabular-nums">{busy ? `${progress}%` : "PDF"}</span>
+                    <span className="font-medium tabular-nums">{busy ? `${progress}%` : ACCEPTED_FORMAT_LABEL}</span>
                 </div>
                 <div className="mt-3 h-1 bg-subtle">
                     <div

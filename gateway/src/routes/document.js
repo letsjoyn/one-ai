@@ -19,8 +19,44 @@ const requestUploadSchema = z.object({
 const uploadCompleteSchema = z.object({
     filePath: z.string().min(1).max(1024),
     documentId: z.string().uuid(),
-    fileName: z.string().trim().min(1).max(255)
+    fileName: z.string().trim().min(1).max(255),
+    mimeType: z.string().default("application/octet-stream")
 });
+
+const supportedUploadTypes = [
+    {
+        extension: ".pdf",
+        label: "PDF",
+        mimeTypes: ["application/pdf", "application/x-pdf"]
+    },
+    {
+        extension: ".txt",
+        label: "TXT",
+        mimeTypes: ["text/plain", "application/octet-stream"]
+    },
+    {
+        extension: ".md",
+        label: "Markdown",
+        mimeTypes: ["text/markdown", "text/plain", "application/octet-stream"]
+    },
+    {
+        extension: ".markdown",
+        label: "Markdown",
+        mimeTypes: ["text/markdown", "text/plain", "application/octet-stream"]
+    }
+];
+
+function getSupportedUploadType(fileName, mimeType) {
+    const normalizedName = fileName.toLowerCase();
+    const normalizedMime = mimeType.toLowerCase();
+    return supportedUploadTypes.find((type) => (
+        normalizedName.endsWith(type.extension) && type.mimeTypes.includes(normalizedMime)
+    ));
+}
+
+function supportedFormatsLabel() {
+    return "PDF, TXT, and Markdown";
+}
 
 function getTenantId(req) {
     return req.user.tenantId;
@@ -29,14 +65,13 @@ function getTenantId(req) {
 async function handleUploadRequest(req, res, next) {
     try {
         const parsed = requestUploadSchema.parse(req.body);
-        const hasPdfExtension = parsed.fileName.toLowerCase().endsWith(".pdf");
-        const supportedMimeType = ["application/pdf", "application/x-pdf"].includes(parsed.mimeType);
-        if (!hasPdfExtension || !supportedMimeType) {
-            return res.status(400).json({ error: "Only PDF files are supported." });
+        const uploadType = getSupportedUploadType(parsed.fileName, parsed.mimeType);
+        if (!uploadType) {
+            return res.status(400).json({ error: `Only ${supportedFormatsLabel()} files are supported.` });
         }
         if (parsed.fileSize > env.MAX_UPLOAD_BYTES) {
             return res.status(413).json({
-                error: `PDF exceeds the ${Math.floor(env.MAX_UPLOAD_BYTES / 1024 / 1024)} MB upload limit.`
+                error: `File exceeds the ${Math.floor(env.MAX_UPLOAD_BYTES / 1024 / 1024)} MB upload limit.`
             });
         }
         const sanitizedFileName = parsed.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -50,7 +85,8 @@ async function handleUploadRequest(req, res, next) {
             filePath,
             token: signed.token,
             signedUrl: signed.signedUrl,
-            mimeType: parsed.mimeType
+            mimeType: parsed.mimeType,
+            fileType: uploadType.label
         });
     } catch (error) {
         next(error);
@@ -67,12 +103,18 @@ router.post("/upload-complete", requireAuth, async (req, res, next) => {
         if (!parsed.filePath.startsWith(expectedPrefix)) {
             return res.status(403).json({ error: "Document path does not belong to this workspace" });
         }
+        const uploadType = getSupportedUploadType(parsed.fileName, parsed.mimeType);
+        if (!uploadType) {
+            return res.status(400).json({ error: `Only ${supportedFormatsLabel()} files are supported.` });
+        }
 
         const response = await queueDocumentProcessing({
             userId: tenantId,
             filePath: parsed.filePath,
             documentId: parsed.documentId,
-            displayName: parsed.fileName
+            displayName: parsed.fileName,
+            mimeType: parsed.mimeType,
+            fileType: uploadType.label
         });
 
         documentOperations.inc({ operation: "queue", result: "success" });

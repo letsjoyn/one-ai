@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import tempfile
 from functools import lru_cache
 
@@ -13,12 +14,13 @@ def get_supabase_client() -> Client:
     return create_client(settings.supabase_url, settings.supabase_service_role_key)
 
 
-def download_pdf_to_tempfile(file_path: str) -> str:
+def download_file_to_tempfile(file_path: str) -> str:
     settings = get_settings()
     supabase = get_supabase_client()
     data = supabase.storage.from_(settings.supabase_bucket).download(file_path)
 
-    fd, temp_path = tempfile.mkstemp(prefix="omniquery-", suffix=".pdf")
+    suffix = Path(file_path).suffix or ".bin"
+    fd, temp_path = tempfile.mkstemp(prefix="omniquery-", suffix=suffix)
     with os.fdopen(fd, "wb") as tmp:
         tmp.write(data)
 

@@ -1,8 +1,9 @@
 # OmniQuery
 
 OmniQuery is a production-shaped document intelligence workspace for small
-teams. Users create accounts, upload private PDFs, wait for asynchronous
-indexing, and ask questions grounded in their own source passages.
+teams. Users create accounts, upload private PDF, text, and Markdown files,
+wait for asynchronous indexing, and ask questions grounded in their own source
+passages.
 
 ## What Is Built
 
@@ -11,7 +12,7 @@ indexing, and ask questions grounded in their own source passages.
 - Email verification and one-time password reset links through generic SMTP
 - MongoDB-persisted conversations scoped to the signed-in user
 - Workspace document sharing with admin/member roles and invitations
-- Private Supabase PDF storage with signed uploads
+- Private Supabase document storage with signed uploads
 - QStash retries and signed webhooks for asynchronous processing
 - Tenant-filtered MongoDB Atlas Vector Search retrieval
 - Document deletion with storage cleanup, vector cleanup, and processing tombstones
@@ -23,14 +24,131 @@ indexing, and ask questions grounded in their own source passages.
 There are no demo credentials. Create a real account after the provider
 environment variables are configured.
 
+## Expansion Roadmap
+
+OmniQuery can grow from private PDF Q&A into an organization-wide knowledge
+search workspace: "Search everything your team has ever worked on." This
+section describes the planned expansion; the current implementation remains
+limited to PDF, text, and Markdown unless the remaining items are built.
+
+### Multi-Format Document Extraction
+
+Upload and indexing support:
+
+- PDF files with page-aware extraction
+- Markdown files with text extraction
+- Plain text files with text extraction
+
+Planned next formats:
+
+- DOCX files with paragraph and heading extraction
+- PPTX files with slide-aware extraction
+- XLSX files with sheet, row, and column-aware extraction
+
+The worker should replace the current PDF-specific processing path with a
+general document processor that selects an extractor by verified MIME type and
+extension. Each extracted chunk should keep enough metadata for retrieval and
+citations:
+
+- Source file name and storage path
+- File type
+- Page, slide, sheet, row range, heading, or line range where available
+- Workspace or tenant ID
+- Document ID and document version
+- Content hash and indexed timestamp
+
+For XLSX files, rows should be indexed with sheet name, row number, and column
+headers preserved so answers can cite the exact sheet and row range.
+
+### Conversation Memory
+
+Add memory inside a workspace without making it invisible or uncontrolled.
+
+- Thread memory should preserve context inside the active conversation.
+- Workspace memory should store reusable team/project facts only when the
+  product makes that behavior visible and auditable.
+- Admins should be able to view, edit, disable, and clear workspace memory.
+
+### Citations And Source Viewing
+
+Every generated answer should include citations that point back to the original
+source chunk. The frontend should support a side-by-side source viewer:
+
+- Chat answer on one side
+- Source preview on the other side
+- Clickable citations
+- Highlighted cited passage, page, slide, sheet row, heading, or text line
+- Link back to the original uploaded file or connected app item
+
+### Indexing Status, Versions, And Analytics
+
+Document processing should expose richer lifecycle states:
+
+```text
+queued -> fetching -> extracting -> chunking -> embedding -> ready
+failed
+stale
+deleted
+```
+
+Document records should track versions so changed files can be re-indexed
+cleanly without confusing old citations. Useful fields include source ID,
+revision ID or content hash, version number, indexed timestamp, and stale state.
+
+Search analytics should help admins understand adoption and gaps:
+
+- Top searches
+- Searches with no useful result
+- Clicked citations
+- Most referenced documents
+- Failed indexing jobs
+- Stale documents
+- Per-connector usage
+
+### Organization Connectors
+
+The larger product direction is for users to connect the tools they already use
+every day:
+
+- Gmail
+- Google Drive
+- Notion
+- Slack
+- GitHub
+- Calendar
+- Dropbox
+- OneDrive
+- Teams
+- Jira
+- Confluence
+
+Each connector needs OAuth or service account setup, permission sync,
+incremental sync, deletion handling, source URLs, rate-limit handling, and
+content extraction. Permission filtering is mandatory: OmniQuery must not return
+or summarize content that the current user is not allowed to access in the
+source system.
+
+Recommended rollout order:
+
+1. Add multi-format file extraction for PDF, DOCX, PPTX, XLSX, Markdown, and
+   text files.
+2. Add richer citation metadata and side-by-side source viewing.
+3. Add document versions, better indexing status, and stale document handling.
+4. Add thread memory and auditable workspace memory.
+5. Add Google Drive and Slack connectors first.
+6. Add Notion and GitHub.
+7. Add OneDrive, Teams, Jira, and Confluence.
+8. Add Gmail, Calendar, and Dropbox once permissions and admin controls are
+   mature.
+
 ## Services
 
 ```text
 frontend  React + Vite
 gateway   Express API, auth, uploads, teams, conversations, metrics
-ai-worker FastAPI, PDF parsing, embeddings, vector retrieval, Groq
+ai-worker FastAPI, document parsing, embeddings, vector retrieval, Groq
 MongoDB   users, conversations, invitations, document status, vectors
-Supabase  private PDF object storage
+Supabase  private document object storage
 QStash    signed asynchronous processing delivery
 Groq      answer generation
 ```
@@ -40,7 +158,8 @@ Groq      answer generation
 - Node.js 20+
 - Python 3.11 available as `py -3.11`
 - A live MongoDB Atlas cluster with an active Atlas Vector Search index
-- Supabase project and private `documents` bucket
+- Supabase project and private `documents` bucket that allows PDF, text, and
+  Markdown MIME types
 - Groq API key
 - QStash token and current/next signing keys
 - SMTP credentials when `REQUIRE_EMAIL_VERIFICATION=true`

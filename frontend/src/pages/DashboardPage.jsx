@@ -92,7 +92,7 @@ function DashboardPage() {
                     <p className="eyebrow">Knowledge base</p>
                     <h1 className="mt-2 text-2xl font-semibold">Document library</h1>
                     <p className="mt-2 max-w-2xl text-sm leading-6 text-secondary">
-                        Upload PDF source material and monitor indexing before using it in chat.
+                        Upload source material and monitor indexing before using it in chat.
                     </p>
                 </div>
                 <p className="text-xs text-secondary">Status refreshes every 6 seconds</p>
@@ -122,7 +122,7 @@ function DashboardPage() {
                 <section>
                     <div className="mb-3">
                         <h2 className="text-sm font-semibold">Add a document</h2>
-                        <p className="mt-1 text-xs text-secondary">PDF files are uploaded directly to private storage.</p>
+                        <p className="mt-1 text-xs text-secondary">PDF, text, and Markdown files are uploaded directly to private storage.</p>
                     </div>
                     <Uploader onUploaded={onUploaded} />
                 </section>

@@ -66,7 +66,7 @@ Create a Supabase project and a private bucket:
 
 ```text
 Bucket: documents
-Allowed MIME type: application/pdf
+Allowed MIME types: application/pdf, application/x-pdf, text/plain, text/markdown, application/octet-stream
 Maximum file size: 25 MB
 ```
 

@@ -4,7 +4,7 @@ import { api } from "./client";
 export async function requestUpload(file) {
     const response = await api.post("/api/documents/upload-url", {
         fileName: file.name,
-        mimeType: file.type || "application/pdf",
+        mimeType: file.type || "application/octet-stream",
         fileSize: file.size
     });
 
@@ -23,11 +23,12 @@ export async function uploadToSupabase(file, signedUrl) {
     });
 }
 
-export async function markUploadComplete(filePath, documentId, fileName) {
+export async function markUploadComplete(filePath, documentId, fileName, mimeType) {
     const response = await api.post("/api/documents/upload-complete", {
         filePath,
         documentId,
-        fileName
+        fileName,
+        mimeType
     });
 
     return response.data;
