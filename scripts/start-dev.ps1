@@ -43,7 +43,14 @@ function Assert-PortAvailable {
 
     $listener = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
     if ($listener) {
-        throw "Port $Port is already in use by process $($listener[0].OwningProcess)."
+        $pid = $listener[0].OwningProcess
+        Write-Host "Port $Port in use by PID $pid — killing stale process..."
+        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 1500
+        $still = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
+        if ($still) {
+            throw "Port $Port is still in use after killing PID $pid."
+        }
     }
 }
 

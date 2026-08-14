@@ -10,6 +10,21 @@ export async function inviteMember(email, role) {
     return response.data.invitation;
 }
 
+export async function fetchPendingInvitationsForMe() {
+    const response = await api.get("/api/team/invitations/pending-for-me");
+    return response.data.invitations || [];
+}
+
+export async function acceptPendingInvitation(invitationId) {
+    const response = await api.post(`/api/team/invitations/${invitationId}/accept`);
+    return response.data;
+}
+
+export async function declinePendingInvitation(invitationId) {
+    const response = await api.post(`/api/team/invitations/${invitationId}/decline`);
+    return response.data.invitation;
+}
+
 export async function revokeInvitation(invitationId) {
     await api.delete(`/api/team/invitations/${invitationId}`);
 }

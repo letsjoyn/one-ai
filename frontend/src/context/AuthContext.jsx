@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
-import { acceptInvitation } from "../api/team";
+import { acceptInvitation, acceptPendingInvitation } from "../api/team";
 
 const AuthContext = createContext(null);
 
@@ -107,6 +107,12 @@ export function AuthProvider({ children }) {
         return response;
     }
 
+    async function acceptWorkspaceInvitation(invitationId) {
+        const response = await acceptPendingInvitation(invitationId);
+        persistAuth(response);
+        return response;
+    }
+
     function logout() {
         localStorage.removeItem("token");
         localStorage.removeItem("email");
@@ -123,6 +129,7 @@ export function AuthProvider({ children }) {
         login,
         register,
         acceptInvite,
+        acceptWorkspaceInvitation,
         logout
     }), [loading, token, user]);
 

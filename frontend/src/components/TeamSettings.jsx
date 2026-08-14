@@ -1,7 +1,9 @@
-import { Mail, Shield, Trash2, UserPlus, Users } from "lucide-react";
+import { Check, Mail, Shield, Trash2, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
+    declinePendingInvitation,
+    fetchPendingInvitationsForMe,
     fetchTeam,
     inviteMember,
     removeMember,
@@ -11,9 +13,10 @@ import {
 import { useAuth } from "../context/AuthContext";
 
 function TeamSettings() {
-    const { user } = useAuth();
+    const { acceptWorkspaceInvitation, user } = useAuth();
     const [members, setMembers] = useState([]);
     const [invitations, setInvitations] = useState([]);
+    const [myInvitations, setMyInvitations] = useState([]);
     const [email, setEmail] = useState("");
     const [role, setRole] = useState("member");
     const [loading, setLoading] = useState(true);
@@ -23,9 +26,15 @@ function TeamSettings() {
 
     async function loadTeam() {
         try {
-            const result = await fetchTeam();
-            setMembers(result.members || []);
-            setInvitations(result.invitations || []);
+            const [teamResult, pendingInvitations] = await Promise.all([
+                fetchTeam(),
+                fetchPendingInvitationsForMe()
+            ]);
+            setMembers(teamResult.members || []);
+            setInvitations(teamResult.invitations || []);
+            setMyInvitations(pendingInvitations.filter((invitation) => (
+                invitation.email === user?.email && invitation.role
+            )));
             setError("");
         } catch (requestError) {
             setError(requestError?.response?.data?.error || "Could not load workspace members.");
@@ -51,6 +60,37 @@ function TeamSettings() {
             setMessage("Invitation sent.");
         } catch (requestError) {
             setError(requestError?.response?.data?.error || "Could not send the invitation.");
+        } finally {
+            setBusyId("");
+        }
+    }
+
+    async function handleAcceptPendingInvitation(invitation) {
+        setBusyId(invitation.id);
+        setError("");
+        setMessage("");
+        try {
+            await acceptWorkspaceInvitation(invitation.id);
+            setMyInvitations((current) => current.filter((item) => item.id !== invitation.id));
+            setMessage("Workspace invitation accepted.");
+            await loadTeam();
+        } catch (requestError) {
+            setError(requestError?.response?.data?.error || "Could not accept the invitation.");
+        } finally {
+            setBusyId("");
+        }
+    }
+
+    async function handleDeclinePendingInvitation(invitation) {
+        setBusyId(invitation.id);
+        setError("");
+        setMessage("");
+        try {
+            await declinePendingInvitation(invitation.id);
+            setMyInvitations((current) => current.filter((item) => item.id !== invitation.id));
+            setMessage("Workspace invitation rejected.");
+        } catch (requestError) {
+            setError(requestError?.response?.data?.error || "Could not reject the invitation.");
         } finally {
             setBusyId("");
         }
@@ -122,6 +162,56 @@ function TeamSettings() {
                     }`}
                 >
                     {error || message}
+                </div>
+            )}
+
+            {myInvitations.length > 0 && (
+                <div className="border-b border-line">
+                    <div className="bg-subtle px-5 py-3 text-xs font-semibold text-secondary">Invitations for you</div>
+                    <div className="divide-y divide-line">
+                        {myInvitations.map((invitation) => (
+                            <div
+                                key={invitation.id}
+                                className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_120px_auto] sm:items-center"
+                            >
+                                <div className="flex min-w-0 items-center gap-3">
+                                    <Mail size={16} className="shrink-0 text-secondary" />
+                                    <div className="min-w-0">
+                                        <p className="truncate text-sm">{invitation.email}</p>
+                                        <p className="mt-1 truncate text-[11px] text-secondary">
+                                            {invitation.invitedByEmail
+                                                ? `Invited by ${invitation.invitedByEmail}`
+                                                : `Invited as ${invitation.role}`}
+                                        </p>
+                                        <p className="mt-1 text-[11px] leading-4 text-secondary">
+                                            Accepting combines your solo workspace documents with this workspace.
+                                        </p>
+                                    </div>
+                                </div>
+                                <span className="text-xs capitalize text-secondary sm:text-right">{invitation.role}</span>
+                                <div className="flex flex-wrap gap-2 sm:justify-end">
+                                    <button
+                                        type="button"
+                                        className="button-secondary h-9"
+                                        onClick={() => handleDeclinePendingInvitation(invitation)}
+                                        disabled={busyId === invitation.id}
+                                    >
+                                        <X size={15} />
+                                        Reject
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="button-primary h-9"
+                                        onClick={() => handleAcceptPendingInvitation(invitation)}
+                                        disabled={busyId === invitation.id}
+                                    >
+                                        <Check size={15} />
+                                        {busyId === invitation.id ? "Joining..." : "Accept"}
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
 

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireWorkspaceAdmin } from "../middlewares/requireWorkspaceAdmin.js";
 import { authRateLimit } from "../middlewares/rateLimit.js";
+import { Conversation } from "../models/Conversation.js";
 import { Invitation } from "../models/Invitation.js";
 import { User } from "../models/User.js";
 import {
@@ -39,9 +40,76 @@ function serializeInvitation(invitation) {
         email: invitation.email,
         role: invitation.role,
         status: invitation.status,
+        invitedByEmail: invitation.invitedBy?.email || null,
         expiresAt: invitation.expiresAt,
         createdAt: invitation.createdAt
     };
+}
+
+async function wouldLeaveWorkspaceWithoutAdmin(user, nextTenantId) {
+    if (user.tenantId === nextTenantId || user.role !== "admin") {
+        return false;
+    }
+
+    const [adminCount, memberCount] = await Promise.all([
+        User.countDocuments({
+            tenantId: user.tenantId,
+            role: "admin"
+        }),
+        User.countDocuments({
+            tenantId: user.tenantId
+        })
+    ]);
+
+    return memberCount > 1 && adminCount <= 1;
+}
+
+async function getWorkspaceMemberCount(tenantId) {
+    return User.countDocuments({ tenantId });
+}
+
+async function mergeSoloWorkspaceData(sourceTenantId, targetTenantId, userId, shouldMerge) {
+    if (!shouldMerge || sourceTenantId === targetTenantId) {
+        return;
+    }
+
+    const now = new Date();
+    const documentStatusCollection = mongoose.connection.collection("document_status");
+    const vectorCollection = mongoose.connection.collection(process.env.MONGO_COLLECTION || "vector_store");
+
+    await Promise.all([
+        documentStatusCollection.updateMany(
+            {
+                userId: sourceTenantId,
+                status: { $ne: "deleted" }
+            },
+            {
+                $set: {
+                    userId: targetTenantId,
+                    updatedAt: now
+                }
+            }
+        ),
+        vectorCollection.updateMany(
+            { tenant_id: sourceTenantId },
+            {
+                $set: {
+                    tenant_id: targetTenantId
+                }
+            }
+        ),
+        Conversation.updateMany(
+            {
+                tenantId: sourceTenantId,
+                userId
+            },
+            {
+                $set: {
+                    tenantId: targetTenantId
+                }
+            }
+        )
+    ]);
 }
 
 router.post("/accept-invite", authRateLimit, async (req, res, next) => {
@@ -65,22 +133,24 @@ router.post("/accept-invite", authRateLimit, async (req, res, next) => {
                 return res.status(401).json({ error: "Invalid account password" });
             }
 
-            if (user.tenantId !== invitation.tenantId && user.role === "admin") {
-                const adminCount = await User.countDocuments({
-                    tenantId: user.tenantId,
-                    role: "admin"
+            if (await wouldLeaveWorkspaceWithoutAdmin(user, invitation.tenantId)) {
+                return res.status(409).json({
+                    error: "Promote another administrator in your current workspace before joining this one"
                 });
-                if (adminCount <= 1) {
-                    return res.status(409).json({
-                        error: "Promote another administrator in your current workspace before joining this one"
-                    });
-                }
             }
 
+            const previousTenantId = user.tenantId;
+            const shouldMergeWorkspaceData = await getWorkspaceMemberCount(previousTenantId) === 1;
             user.tenantId = invitation.tenantId;
             user.role = invitation.role;
             user.emailVerifiedAt ||= new Date();
             await user.save();
+            await mergeSoloWorkspaceData(
+                previousTenantId,
+                invitation.tenantId,
+                user._id,
+                shouldMergeWorkspaceData
+            );
         } else {
             const passwordHash = await bcrypt.hash(parsed.password, 12);
             user = await User.create({
@@ -128,6 +198,23 @@ router.get("/", async (req, res, next) => {
     }
 });
 
+router.get("/invitations/pending-for-me", async (req, res, next) => {
+    try {
+        await connectDB();
+        const invitations = await Invitation.find({
+            email: req.authUser.email,
+            status: "pending",
+            expiresAt: { $gt: new Date() }
+        }).populate("invitedBy", "email").sort({ createdAt: -1 });
+
+        return res.status(200).json({
+            invitations: invitations.map(serializeInvitation)
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 router.post("/invitations", requireWorkspaceAdmin, async (req, res, next) => {
     try {
         const parsed = inviteSchema.parse(req.body);
@@ -161,6 +248,81 @@ router.post("/invitations", requireWorkspaceAdmin, async (req, res, next) => {
 
         await sendInvitationEmail(email, token, req.currentUser.email);
         return res.status(201).json({ invitation: serializeInvitation(invitation) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post("/invitations/:invitationId/accept", async (req, res, next) => {
+    try {
+        if (!mongoose.isValidObjectId(req.params.invitationId)) {
+            return res.status(404).json({ error: "Invitation not found" });
+        }
+
+        const invitation = await Invitation.findOne({
+            _id: req.params.invitationId,
+            email: req.authUser.email,
+            status: "pending",
+            expiresAt: { $gt: new Date() }
+        });
+        if (!invitation) {
+            return res.status(404).json({ error: "Invitation not found" });
+        }
+
+        const user = req.authUser;
+        if (await wouldLeaveWorkspaceWithoutAdmin(user, invitation.tenantId)) {
+            return res.status(409).json({
+                error: "Promote another administrator in your current workspace before joining this one"
+            });
+        }
+
+        const previousTenantId = user.tenantId;
+        const shouldMergeWorkspaceData = await getWorkspaceMemberCount(previousTenantId) === 1;
+        user.tenantId = invitation.tenantId;
+        user.role = invitation.role;
+        user.emailVerifiedAt ||= new Date();
+        await user.save();
+        await mergeSoloWorkspaceData(
+            previousTenantId,
+            invitation.tenantId,
+            user._id,
+            shouldMergeWorkspaceData
+        );
+
+        invitation.status = "accepted";
+        invitation.acceptedAt = new Date();
+        await invitation.save();
+
+        return res.status(200).json({
+            token: signToken(user),
+            user: serializeUser(user)
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post("/invitations/:invitationId/decline", async (req, res, next) => {
+    try {
+        if (!mongoose.isValidObjectId(req.params.invitationId)) {
+            return res.status(404).json({ error: "Invitation not found" });
+        }
+
+        const invitation = await Invitation.findOneAndUpdate(
+            {
+                _id: req.params.invitationId,
+                email: req.authUser.email,
+                status: "pending",
+                expiresAt: { $gt: new Date() }
+            },
+            { $set: { status: "declined" } },
+            { new: true }
+        );
+        if (!invitation) {
+            return res.status(404).json({ error: "Invitation not found" });
+        }
+
+        return res.status(200).json({ invitation: serializeInvitation(invitation) });
     } catch (error) {
         next(error);
     }
