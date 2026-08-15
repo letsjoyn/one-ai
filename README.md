@@ -5,7 +5,7 @@ teams. Users create accounts, upload private PDF, text, and Markdown files,
 wait for asynchronous indexing, and ask questions grounded in their own source
 passages.
 
-## What Is Built
+## What Is Already Built 
 
 - React/Vite frontend with sharp responsive dark and light themes
 - Real JWT email/password accounts with bcrypt password hashing
