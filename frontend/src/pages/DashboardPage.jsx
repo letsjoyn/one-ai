@@ -1,8 +1,8 @@
-import { AlertCircle, CheckCircle2, Clock3, Files } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock3, Files, Loader2, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import DocumentTable from "../components/DocumentTable";
 import Uploader from "../components/Uploader";
-import { deleteDocument, fetchDocuments } from "../api/documents";
+import { deleteAllDocuments, deleteDocument, fetchDocuments } from "../api/documents";
 
 function StatCard({ label, value, icon: Icon, accent }) {
     return (
@@ -21,6 +21,7 @@ function DashboardPage() {
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState("");
     const [deletingId, setDeletingId] = useState("");
+    const [deletingAll, setDeletingAll] = useState(false);
 
     const metrics = useMemo(() => {
         const ready = documents.filter((d) => d.status === "ready").length;
@@ -52,6 +53,21 @@ function DashboardPage() {
             setLoadError(err?.response?.data?.error || "Could not delete the document.");
         } finally {
             setDeletingId("");
+        }
+    }
+
+    async function handleDeleteAll() {
+        if (!documents.length) return;
+        if (!window.confirm(`Are you sure you want to delete ALL ${documents.length} documents? This will permanently remove all files and indexed data.`)) return;
+        setDeletingAll(true);
+        try {
+            await deleteAllDocuments();
+            setDocuments([]);
+            setLoadError("");
+        } catch (err) {
+            setLoadError(err?.response?.data?.error || "Could not delete all documents.");
+        } finally {
+            setDeletingAll(false);
         }
     }
 
@@ -130,9 +146,22 @@ function DashboardPage() {
 
                 {/* File list */}
                 <section className="min-w-0">
-                    <div className="mb-3 flex items-center justify-between">
-                        <p className="text-[12px] font-semibold">Indexed files</p>
-                        <p className="text-[11px] tabular-nums text-secondary">{documents.length} total</p>
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-[12px] font-semibold">Indexed files</p>
+                            <p className="text-[11px] tabular-nums text-secondary">{documents.length} total</p>
+                        </div>
+                        {documents.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={handleDeleteAll}
+                                disabled={deletingAll}
+                                className="flex items-center gap-1.5 rounded px-2.5 py-1 text-[11px] font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 border border-red-200 dark:border-red-900/50 transition-colors disabled:opacity-50"
+                            >
+                                {deletingAll ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                                {deletingAll ? "Deleting all…" : "Delete all files"}
+                            </button>
+                        )}
                     </div>
                     <DocumentTable
                         rows={documents}

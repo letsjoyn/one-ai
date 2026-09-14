@@ -3,9 +3,10 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.security import require_internal_api_key
-from app.rag.mongo_vector import delete_document_vectors
+from app.rag.mongo_vector import delete_all_user_vectors, delete_document_vectors
 from app.services.document_status_service import (
     list_documents_for_user,
+    mark_all_documents_deleted,
     mark_document_deleted,
 )
 from app.services.supabase_client import delete_file
@@ -23,7 +24,7 @@ def _serialize_datetime(value):
 @router.get("/api/documents", dependencies=[Depends(require_internal_api_key)])
 def get_documents(
     userId: str = Query(min_length=1, max_length=100),
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=500, ge=1, le=1000),
 ):
     try:
         docs = list_documents_for_user(user_id=userId, limit=limit)
@@ -35,6 +36,35 @@ def get_documents(
         normalized.append({key: _serialize_datetime(val) for key, val in doc.items()})
 
     return {"documents": normalized}
+
+
+@router.delete(
+    "/api/documents",
+    dependencies=[Depends(require_internal_api_key)],
+)
+def delete_all_documents(
+    userId: str = Query(min_length=1, max_length=100),
+):
+    try:
+        docs = list_documents_for_user(user_id=userId, limit=2000)
+        for doc in docs:
+            if doc.get("filePath"):
+                try:
+                    delete_file(doc["filePath"])
+                except Exception:
+                    pass
+
+        mark_all_documents_deleted(user_id=userId)
+        delete_all_user_vectors(userId)
+        DOCUMENT_DELETIONS.labels(result="success").inc()
+    except Exception as exc:  # noqa: BLE001
+        DOCUMENT_DELETIONS.labels(result="error").inc()
+        raise HTTPException(status_code=500, detail="Bulk document cleanup failed") from exc
+
+    return {
+        "status": "deleted_all",
+        "count": len(docs),
+    }
 
 
 @router.delete(

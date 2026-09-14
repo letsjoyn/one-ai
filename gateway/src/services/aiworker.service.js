@@ -14,7 +14,7 @@ export async function queryRag(payload) {
     return response.data;
 }
 
-export async function getDocumentStatuses(userId, limit = 50) {
+export async function getDocumentStatuses(userId, limit = 500) {
     const response = await aiClient.get("/api/documents", {
         params: {
             userId,
@@ -30,3 +30,11 @@ export async function deleteDocumentData(userId, documentId) {
     });
     return response.data;
 }
+
+export async function deleteAllDocumentsData(userId) {
+    const response = await aiClient.delete("/api/documents", {
+        params: { userId }
+    });
+    return response.data;
+}
+

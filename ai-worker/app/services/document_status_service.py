@@ -117,7 +117,7 @@ def claim_document_processing(
     )
 
 
-def list_documents_for_user(user_id: str, limit: int = 100):
+def list_documents_for_user(user_id: str, limit: int = 500):
     collection = get_document_status_collection()
     cursor = (
         collection.find(
@@ -148,6 +148,25 @@ def mark_document_deleted(*, document_id: str, user_id: str):
         projection={"_id": 0},
         return_document=ReturnDocument.AFTER,
     )
+
+
+def mark_all_documents_deleted(*, user_id: str) -> int:
+    collection = get_document_status_collection()
+    res = collection.update_many(
+        {
+            "userId": user_id,
+            "status": {"$ne": "deleted"},
+        },
+        {
+            "$set": {
+                "status": "deleted",
+                "updatedAt": _now(),
+                "error": None,
+            },
+            "$unset": {"leaseExpiresAt": ""},
+        },
+    )
+    return res.modified_count
 
 
 def is_document_deleted(*, document_id: str, user_id: str) -> bool:

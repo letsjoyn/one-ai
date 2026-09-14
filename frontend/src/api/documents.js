@@ -34,7 +34,7 @@ export async function markUploadComplete(filePath, documentId, fileName, mimeTyp
     return response.data;
 }
 
-export async function fetchDocuments(limit = 50) {
+export async function fetchDocuments(limit = 500) {
     const response = await api.get("/api/documents", {
         params: { limit }
     });
@@ -46,3 +46,9 @@ export async function deleteDocument(documentId) {
     const response = await api.delete(`/api/documents/${documentId}`);
     return response.data;
 }
+
+export async function deleteAllDocuments() {
+    const response = await api.delete("/api/documents");
+    return response.data;
+}
+

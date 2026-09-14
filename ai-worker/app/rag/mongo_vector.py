@@ -120,3 +120,12 @@ def delete_document_vectors(tenant_id: str, document_id: str) -> int:
         }
     )
     return result.deleted_count
+
+
+def delete_all_user_vectors(tenant_id: str) -> int:
+    result = get_collection().delete_many(
+        {
+            "tenant_id": tenant_id,
+        }
+    )
+    return result.deleted_count

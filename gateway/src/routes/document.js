@@ -4,7 +4,7 @@ import { z } from "zod";
 import { env } from "../utils/env.js";
 import { createSignedUploadUrl } from "../services/supabase.service.js";
 import { queueDocumentProcessing } from "../services/qstash.service.js";
-import { deleteDocumentData, getDocumentStatuses } from "../services/aiworker.service.js";
+import { deleteAllDocumentsData, deleteDocumentData, getDocumentStatuses } from "../services/aiworker.service.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { documentOperations } from "../monitoring/metrics.js";
 
@@ -130,10 +130,21 @@ router.post("/upload-complete", requireAuth, async (req, res, next) => {
 
 router.get("/", requireAuth, async (req, res, next) => {
     try {
-        const limit = Number.parseInt(req.query.limit || "50", 10);
-        const data = await getDocumentStatuses(getTenantId(req), Number.isNaN(limit) ? 50 : limit);
+        const limit = Number.parseInt(req.query.limit || "500", 10);
+        const data = await getDocumentStatuses(getTenantId(req), Number.isNaN(limit) ? 500 : limit);
         res.status(200).json(data);
     } catch (error) {
+        next(error);
+    }
+});
+
+router.delete("/", requireAuth, async (req, res, next) => {
+    try {
+        const result = await deleteAllDocumentsData(getTenantId(req));
+        documentOperations.inc({ operation: "delete_all", result: "success" });
+        res.status(200).json(result);
+    } catch (error) {
+        documentOperations.inc({ operation: "delete_all", result: "error" });
         next(error);
     }
 });
