@@ -1,6 +1,7 @@
 from functools import lru_cache
 
 import certifi
+import torch
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from pymongo import MongoClient
@@ -9,6 +10,9 @@ from pymongo.operations import SearchIndexModel
 from app.core.config import get_settings
 
 
+
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
 @lru_cache
 def get_embeddings() -> HuggingFaceEmbeddings:
     return HuggingFaceEmbeddings(model_name="BAAI/bge-small-en-v1.5")
