@@ -10,32 +10,140 @@ const PROMPTS = [
 ];
 
 function renderInline(text) {
-    return String(text).split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g).map((p, i) => {
-        if (p.startsWith("**") && p.endsWith("**")) return <strong key={i}>{p.slice(2, -2)}</strong>;
+    return String(text).split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g).map((p, i) => {
+        if (p.startsWith("**") && p.endsWith("**")) return <strong key={i} className="font-semibold">{p.slice(2, -2)}</strong>;
         if (p.startsWith("*") && p.endsWith("*")) return <em key={i}>{p.slice(1, -1)}</em>;
+        if (p.startsWith("`") && p.endsWith("`")) return <code key={i} className="mono rounded bg-subtle px-1 py-0.5 text-[11px]">{p.slice(1, -1)}</code>;
         return p;
     });
 }
 
+function parseTable(tableLines) {
+    const parseRow = (line) => line.replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+    const headers = parseRow(tableLines[0]);
+    const rows = tableLines.slice(2).map(parseRow);
+    return (
+        <div className="my-3 overflow-x-auto rounded border border-line">
+            <table className="w-full border-collapse text-[12px]">
+                <thead>
+                    <tr className="border-b border-line bg-subtle">
+                        {headers.map((h, i) => (
+                            <th key={i} className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-secondary whitespace-nowrap">
+                                {renderInline(h)}
+                            </th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                    {rows.map((row, ri) => (
+                        <tr key={ri} className="transition-colors hover:bg-subtle/50">
+                            {row.map((cell, ci) => (
+                                <td key={ci} className="px-3 py-2 text-[12px] leading-5 align-top">
+                                    {renderInline(cell)}
+                                </td>
+                            ))}
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
 function renderMarkdown(text) {
-    const blocks = [], lines = String(text).split(/\r?\n/);
-    let ul = [], ol = [];
-    function flush() {
-        if (ul.length) { blocks.push(<ul key={`ul${blocks.length}`} className="my-2 list-disc space-y-1 pl-5 text-[13px]">{ul.map((t, i) => <li key={i}>{renderInline(t)}</li>)}</ul>); ul = []; }
-        if (ol.length) { blocks.push(<ol key={`ol${blocks.length}`} className="my-2 list-decimal space-y-1 pl-5 text-[13px]">{ol.map((t, i) => <li key={i}>{renderInline(t)}</li>)}</ol>); ol = []; }
+    const blocks = [];
+    const lines = String(text).split(/\r?\n/);
+    let i = 0;
+
+    while (i < lines.length) {
+        const line = lines[i];
+        const trimmed = line.trim();
+
+        // Fenced code block
+        if (trimmed.startsWith("```")) {
+            const codeLines = [];
+            i++;
+            while (i < lines.length && !lines[i].trim().startsWith("```")) {
+                codeLines.push(lines[i]);
+                i++;
+            }
+            blocks.push(
+                <pre key={`code-${i}`} className="my-3 overflow-x-auto rounded border border-line bg-subtle px-4 py-3">
+                    <code className="mono text-[12px] leading-5 text-primary">{codeLines.join("\n")}</code>
+                </pre>
+            );
+            i++;
+            continue;
+        }
+
+        // Table
+        if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+            const tableLines = [];
+            while (i < lines.length && lines[i].trim().startsWith("|")) {
+                tableLines.push(lines[i]);
+                i++;
+            }
+            if (tableLines.length >= 2) {
+                blocks.push(<div key={`table-${i}`}>{parseTable(tableLines)}</div>);
+            }
+            continue;
+        }
+
+        // Headings
+        const h3 = trimmed.match(/^###\s+(.+)$/);
+        const h2 = trimmed.match(/^##\s+(.+)$/);
+        const h1 = trimmed.match(/^#\s+(.+)$/);
+        if (h3) { blocks.push(<p key={`h3-${i}`} className="mt-4 mb-1 text-[13px] font-semibold">{renderInline(h3[1])}</p>); i++; continue; }
+        if (h2) { blocks.push(<p key={`h2-${i}`} className="mt-5 mb-1.5 text-[14px] font-semibold tracking-tight">{renderInline(h2[1])}</p>); i++; continue; }
+        if (h1) { blocks.push(<p key={`h1-${i}`} className="mt-5 mb-1.5 text-[15px] font-semibold tracking-tight">{renderInline(h1[1])}</p>); i++; continue; }
+
+        // Horizontal rule
+        if (/^(---+|\*\*\*+|___+)$/.test(trimmed)) {
+            blocks.push(<hr key={`hr-${i}`} className="my-3 border-line" />);
+            i++; continue;
+        }
+
+        // Bullet list — collect consecutive items
+        if (/^[-*]\s+/.test(trimmed)) {
+            const items = [];
+            while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
+                items.push(lines[i].trim().replace(/^[-*]\s+/, ""));
+                i++;
+            }
+            blocks.push(
+                <ul key={`ul-${i}`} className="my-2 space-y-1 pl-5 text-[13px] leading-6">
+                    {items.map((item, j) => <li key={j} className="list-disc">{renderInline(item)}</li>)}
+                </ul>
+            );
+            continue;
+        }
+
+        // Ordered list
+        if (/^\d+[.)]\s+/.test(trimmed)) {
+            const items = [];
+            while (i < lines.length && /^\d+[.)]\s+/.test(lines[i].trim())) {
+                items.push(lines[i].trim().replace(/^\d+[.)]\s+/, ""));
+                i++;
+            }
+            blocks.push(
+                <ol key={`ol-${i}`} className="my-2 space-y-1 pl-5 text-[13px] leading-6">
+                    {items.map((item, j) => <li key={j} className="list-decimal">{renderInline(item)}</li>)}
+                </ol>
+            );
+            continue;
+        }
+
+        // Empty line
+        if (!trimmed) { blocks.push(<div key={`sp-${i}`} className="h-2" />); i++; continue; }
+
+        // Paragraph
+        blocks.push(<p key={`p-${i}`} className="mb-1.5 text-[13px] leading-6">{renderInline(trimmed)}</p>);
+        i++;
     }
-    lines.forEach((line, i) => {
-        const t = line.trim();
-        const bm = t.match(/^[-*]\s+(.+)$/), om = t.match(/^\d+[.)]\s+(.+)$/);
-        if (!t) { flush(); blocks.push(<div key={`s${i}`} className="h-2" />); return; }
-        if (bm) { if (ol.length) flush(); ul.push(bm[1]); return; }
-        if (om) { if (ul.length) flush(); ol.push(om[1]); return; }
-        flush();
-        blocks.push(<p key={`p${i}`} className="mb-2 text-[13px] leading-6 last:mb-0">{renderInline(t)}</p>);
-    });
-    flush();
+
     return blocks;
 }
+
 
 function ChatBox({ conversation, onReplace }) {
     const [input, setInput] = useState("");

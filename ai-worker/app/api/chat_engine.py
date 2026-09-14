@@ -13,7 +13,7 @@ class ChatRequest(BaseModel):
     userId: str = Field(min_length=1, max_length=100)
     query: str = Field(min_length=1, max_length=5000)
     conversationId: str | None = Field(default=None, max_length=100)
-    topK: int = Field(default=4, ge=1, le=10)
+    topK: int = Field(default=30, ge=1, le=50)
 
 
 @router.post("/api/chat", dependencies=[Depends(require_internal_api_key)])

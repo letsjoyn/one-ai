@@ -13,7 +13,7 @@ const router = express.Router();
 const chatSchema = z.object({
     query: z.string().trim().min(1).max(5000),
     conversationId: z.string().max(100).optional(),
-    topK: z.number().int().min(1).max(10).default(4)
+    topK: z.number().int().min(1).max(50).default(30)
 });
 
 function getTenantId(req) {
