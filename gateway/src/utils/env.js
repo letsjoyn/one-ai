@@ -87,21 +87,15 @@ const rawEnvSchema = z.preprocess((value) => {
         });
     }
 
-    if (!value.REQUIRE_EMAIL_VERIFICATION) {
-        context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["REQUIRE_EMAIL_VERIFICATION"],
-            message: "Email verification must be enabled in production"
-        });
-    }
-
-    for (const key of ["SMTP_HOST", "EMAIL_FROM"]) {
-        if (!value[key]) {
-            context.addIssue({
-                code: z.ZodIssueCode.custom,
-                path: [key],
-                message: `${key} is required in production`
-            });
+    if (value.REQUIRE_EMAIL_VERIFICATION) {
+        for (const key of ["SMTP_HOST", "EMAIL_FROM"]) {
+            if (!value[key]) {
+                context.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: [key],
+                    message: `${key} is required in production when REQUIRE_EMAIL_VERIFICATION is enabled`
+                });
+            }
         }
     }
 
