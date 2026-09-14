@@ -24,7 +24,10 @@ function DashboardPage() {
     }, [documents]);
 
     function onUploaded(newDocument) {
-        setDocuments((current) => [newDocument, ...current]);
+        setDocuments((current) => {
+            const filtered = current.filter((item) => item.id !== newDocument.id);
+            return [newDocument, ...filtered];
+        });
     }
 
     async function handleDelete(document) {
@@ -52,8 +55,16 @@ function DashboardPage() {
             try {
                 const docs = await fetchDocuments();
                 if (!cancelled) {
+                    const uniqueDocs = [];
+                    const seenIds = new Set();
+                    for (const doc of docs) {
+                        if (doc.documentId && !seenIds.has(doc.documentId)) {
+                            seenIds.add(doc.documentId);
+                            uniqueDocs.push(doc);
+                        }
+                    }
                     setDocuments(
-                        docs.map((document) => ({
+                        uniqueDocs.map((document) => ({
                             id: document.documentId,
                             name: document.displayName || document.filePath?.split("/").pop() || document.documentId,
                             status: document.status,

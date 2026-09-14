@@ -3,6 +3,7 @@ from functools import lru_cache
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from pymongo import MongoClient
+from pymongo.operations import SearchIndexModel
 
 from app.core.config import get_settings
 
@@ -34,6 +35,7 @@ def get_document_status_collection():
 
 
 def ensure_mongo_indexes() -> None:
+    settings = get_settings()
     get_mongo_client().admin.command("ping")
 
     get_document_status_collection().create_index(
@@ -49,6 +51,31 @@ def ensure_mongo_indexes() -> None:
         [("tenant_id", 1), ("document_id", 1)],
         name="tenant_document",
     )
+
+    try:
+        existing = {idx["name"] for idx in get_collection().list_search_indexes()}
+        if settings.mongo_vector_index not in existing:
+            model = SearchIndexModel(
+                definition={
+                    "fields": [
+                        {
+                            "type": "vector",
+                            "path": "embedding",
+                            "numDimensions": 384,
+                            "similarity": "cosine",
+                        },
+                        {
+                            "type": "filter",
+                            "path": "tenant_id",
+                        },
+                    ]
+                },
+                name=settings.mongo_vector_index,
+                type="vectorSearch",
+            )
+            get_collection().create_search_index(model=model)
+    except Exception:
+        pass
 
 
 def get_vector_store() -> MongoDBAtlasVectorSearch:

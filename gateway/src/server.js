@@ -26,7 +26,11 @@ if (env.NODE_ENV === "production") {
 app.use(helmet());
 app.use(
     cors({
-        origin: env.FRONTEND_ORIGIN,
+        origin: [
+            env.FRONTEND_ORIGIN,
+            "http://localhost:5173",
+            "http://127.0.0.1:5173"
+        ],
         credentials: true
     })
 );
