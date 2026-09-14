@@ -1,239 +1,190 @@
-import { BookOpen, FileSearch, SendHorizontal, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { ArrowUp, BookOpen, CircleDot, FileSearch, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { askQuestion } from "../api/chat";
 import SourceAccordion from "./SourceAccordion";
 
-const promptIdeas = [
+const PROMPTS = [
     "Summarize the key points",
     "List important dates and obligations",
     "What information is missing?"
 ];
 
-function renderInlineMarkdown(text) {
-    const parts = String(text).split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
-
-    return parts.map((part, index) => {
-        if (part.startsWith("**") && part.endsWith("**")) {
-            return <strong key={index}>{part.slice(2, -2)}</strong>;
-        }
-        if (part.startsWith("*") && part.endsWith("*")) {
-            return <em key={index}>{part.slice(1, -1)}</em>;
-        }
-        return part;
+function renderInline(text) {
+    return String(text).split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g).map((p, i) => {
+        if (p.startsWith("**") && p.endsWith("**")) return <strong key={i}>{p.slice(2, -2)}</strong>;
+        if (p.startsWith("*") && p.endsWith("*")) return <em key={i}>{p.slice(1, -1)}</em>;
+        return p;
     });
 }
 
-function renderAssistantMessage(text) {
-    const blocks = [];
-    const lines = String(text).split(/\r?\n/);
-    let listItems = [];
-    let orderedItems = [];
-
-    function flushLists() {
-        if (listItems.length) {
-            blocks.push(
-                <ul key={`ul-${blocks.length}`} className="my-2 list-disc space-y-1 pl-5">
-                    {listItems.map((item, index) => (
-                        <li key={index}>{renderInlineMarkdown(item)}</li>
-                    ))}
-                </ul>
-            );
-            listItems = [];
-        }
-
-        if (orderedItems.length) {
-            blocks.push(
-                <ol key={`ol-${blocks.length}`} className="my-2 list-decimal space-y-1 pl-5">
-                    {orderedItems.map((item, index) => (
-                        <li key={index}>{renderInlineMarkdown(item)}</li>
-                    ))}
-                </ol>
-            );
-            orderedItems = [];
-        }
+function renderMarkdown(text) {
+    const blocks = [], lines = String(text).split(/\r?\n/);
+    let ul = [], ol = [];
+    function flush() {
+        if (ul.length) { blocks.push(<ul key={`ul${blocks.length}`} className="my-2 list-disc space-y-1 pl-5 text-[13px]">{ul.map((t, i) => <li key={i}>{renderInline(t)}</li>)}</ul>); ul = []; }
+        if (ol.length) { blocks.push(<ol key={`ol${blocks.length}`} className="my-2 list-decimal space-y-1 pl-5 text-[13px]">{ol.map((t, i) => <li key={i}>{renderInline(t)}</li>)}</ol>); ol = []; }
     }
-
-    lines.forEach((line, index) => {
-        const trimmed = line.trim();
-        const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/);
-        const orderedMatch = trimmed.match(/^\d+[.)]\s+(.+)$/);
-
-        if (!trimmed) {
-            flushLists();
-            blocks.push(<div key={`space-${index}`} className="h-2" />);
-            return;
-        }
-
-        if (bulletMatch) {
-            if (orderedItems.length) {
-                flushLists();
-            }
-            listItems.push(bulletMatch[1]);
-            return;
-        }
-
-        if (orderedMatch) {
-            if (listItems.length) {
-                flushLists();
-            }
-            orderedItems.push(orderedMatch[1]);
-            return;
-        }
-
-        flushLists();
-        blocks.push(
-            <p key={`p-${index}`} className="mb-2 last:mb-0">
-                {renderInlineMarkdown(trimmed)}
-            </p>
-        );
+    lines.forEach((line, i) => {
+        const t = line.trim();
+        const bm = t.match(/^[-*]\s+(.+)$/), om = t.match(/^\d+[.)]\s+(.+)$/);
+        if (!t) { flush(); blocks.push(<div key={`s${i}`} className="h-2" />); return; }
+        if (bm) { if (ol.length) flush(); ul.push(bm[1]); return; }
+        if (om) { if (ul.length) flush(); ol.push(om[1]); return; }
+        flush();
+        blocks.push(<p key={`p${i}`} className="mb-2 text-[13px] leading-6 last:mb-0">{renderInline(t)}</p>);
     });
-
-    flushLists();
+    flush();
     return blocks;
 }
 
 function ChatBox({ conversation, onReplace }) {
     const [input, setInput] = useState("");
     const [busy, setBusy] = useState(false);
-    const [optimisticMessages, setOptimisticMessages] = useState(conversation.messages);
+    const [messages, setMessages] = useState(conversation.messages);
+    const bottomRef = useRef(null);
 
-    async function sendMessage(overrideQuery) {
-        const query = (overrideQuery ?? input).trim();
-        if (!query || busy) {
-            return;
-        }
+    useEffect(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [messages, busy]);
 
+    async function send(override) {
+        const q = (override ?? input).trim();
+        if (!q || busy) return;
         setBusy(true);
         setInput("");
-        setOptimisticMessages((messages) => [...messages, { role: "user", text: query }]);
-
+        setMessages((m) => [...m, { role: "user", text: q }]);
         try {
-            const response = await askQuestion(query, conversation.id);
-            setOptimisticMessages(response.conversation.messages);
-            onReplace(response.conversation);
-        } catch (error) {
-            console.error(error);
-            setOptimisticMessages((messages) => [
-                ...messages,
-                {
-                    role: "assistant",
-                    text: "The assistant is unavailable. Verify that the gateway and AI worker are running.",
-                    sources: [],
-                    error: true
-                }
-            ]);
+            const res = await askQuestion(q, conversation.id);
+            setMessages(res.conversation.messages);
+            onReplace(res.conversation);
+        } catch {
+            setMessages((m) => [...m, {
+                role: "assistant",
+                text: "The assistant is unavailable. Verify that the gateway and AI worker are running.",
+                sources: [],
+                error: true
+            }]);
         } finally {
             setBusy(false);
         }
     }
 
     return (
-        <section className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] bg-surface">
-            <div className="flex h-14 items-center justify-between border-b border-line px-4 sm:px-5">
+        <section className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto]">
+            {/* Chat header */}
+            <div className="flex h-12 items-center justify-between border-b border-line px-4">
                 <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{conversation.title}</p>
-                    <p className="text-[11px] text-secondary">Retrieval-augmented response</p>
+                    <p className="truncate text-[13px] font-semibold leading-tight">{conversation.title}</p>
                 </div>
-                <div className="flex items-center gap-2 text-[11px] text-secondary">
-                    <span className="h-2 w-2 bg-emerald-500" />
+                <div className="flex items-center gap-1.5 text-[11px] text-secondary">
+                    <CircleDot size={10} className="text-[rgb(var(--success))]" />
                     Ready
                 </div>
             </div>
 
+            {/* Messages */}
             <div className="min-h-0 overflow-y-auto">
-                {!optimisticMessages.length ? (
+                {!messages.length ? (
                     <div className="flex min-h-full items-center justify-center px-5 py-12">
-                        <div className="w-full max-w-xl text-center">
-                            <span className="mx-auto grid h-12 w-12 place-items-center border border-line bg-subtle text-secondary">
-                                <FileSearch size={22} />
+                        <div className="w-full max-w-lg text-center">
+                            <span className="mx-auto grid h-10 w-10 place-items-center rounded border border-line bg-subtle text-secondary">
+                                <FileSearch size={18} />
                             </span>
-                            <h2 className="mt-5 text-lg font-semibold">Start with a focused question</h2>
-                            <p className="mx-auto mt-2 max-w-md break-words text-sm leading-6 text-secondary">
-                                OmniQuery retrieves matching passages from your indexed PDFs before generating an answer.
+                            <h2 className="mt-5 text-[15px] font-semibold tracking-tight">Ask your documents</h2>
+                            <p className="mx-auto mt-2 max-w-xs text-[12px] leading-5 text-secondary">
+                                OmniQuery retrieves matching passages from your indexed files before generating an answer.
                             </p>
-                            <div className="mt-7 grid gap-2 sm:grid-cols-3">
-                                {promptIdeas.map((prompt) => (
+                            <div className="mt-6 grid gap-2 sm:grid-cols-3">
+                                {PROMPTS.map((p) => (
                                     <button
-                                        key={prompt}
+                                        key={p}
                                         type="button"
-                                        onClick={() => sendMessage(prompt)}
-                                        className="min-h-20 min-w-0 break-words border border-line bg-surface px-3 py-3 text-left text-xs leading-5 text-secondary transition hover:border-accent hover:text-primary"
+                                        onClick={() => send(p)}
+                                        className="rounded border border-line bg-surface px-3 py-3 text-left text-[12px] leading-5 text-secondary transition-colors hover:border-accent/50 hover:bg-subtle hover:text-primary"
                                     >
-                                        {prompt}
+                                        {p}
                                     </button>
                                 ))}
                             </div>
                         </div>
                     </div>
                 ) : (
-                    <div className="mx-auto w-full max-w-3xl divide-y divide-line px-4 sm:px-6">
-                        {optimisticMessages.map((message, index) => (
-                            <article key={message.id || `${message.role}-${index}`} className="flex gap-4 py-6">
-                                <span
-                                    className={`grid h-8 w-8 shrink-0 place-items-center border ${
-                                        message.role === "user"
-                                            ? "border-primary bg-primary text-surface"
-                                            : "border-line bg-subtle text-secondary"
-                                    }`}
-                                >
-                                    {message.role === "user" ? <BookOpen size={15} /> : <Sparkles size={15} />}
+                    <div className="mx-auto w-full max-w-2xl px-4 py-4 sm:px-6 divide-y divide-line">
+                        {messages.map((msg, idx) => (
+                            <article key={msg.id || `${msg.role}-${idx}`} className="flex gap-3 py-5">
+                                <span className={`grid h-7 w-7 shrink-0 place-items-center rounded border text-[11px] font-semibold ${
+                                    msg.role === "user"
+                                        ? "border-[rgb(var(--text-primary))] bg-[rgb(var(--text-primary))] text-[rgb(var(--surface))]"
+                                        : "border-line bg-subtle text-secondary"
+                                }`}>
+                                    {msg.role === "user" ? <BookOpen size={13} /> : <Sparkles size={13} />}
                                 </span>
                                 <div className="min-w-0 flex-1">
-                                    <p className="mb-2 text-xs font-semibold text-secondary">
-                                        {message.role === "user" ? "You" : "OmniQuery"}
+                                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-secondary">
+                                        {msg.role === "user" ? "You" : "OmniQuery"}
                                     </p>
-                                    <div className={`text-sm leading-7 ${message.error ? "whitespace-pre-wrap text-red-600 dark:text-red-400" : "text-primary"}`}>
-                                        {message.role === "assistant" && !message.error
-                                            ? renderAssistantMessage(message.text)
-                                            : message.text}
+                                    <div className={msg.error ? "text-[rgb(var(--danger))] text-[13px]" : ""}>
+                                        {msg.role === "assistant" && !msg.error
+                                            ? renderMarkdown(msg.text)
+                                            : <p className="text-[13px] leading-6">{msg.text}</p>
+                                        }
                                     </div>
-                                    {message.role === "assistant" && <SourceAccordion sources={message.sources} />}
+                                    {msg.role === "assistant" && <SourceAccordion sources={msg.sources} />}
                                 </div>
                             </article>
                         ))}
+
+                        {/* Thinking indicator */}
                         {busy && (
-                            <article className="flex gap-4 py-6">
-                                <span className="grid h-8 w-8 shrink-0 place-items-center border border-line bg-subtle text-secondary">
-                                    <Sparkles size={15} />
+                            <article className="flex gap-3 py-5">
+                                <span className="grid h-7 w-7 shrink-0 place-items-center rounded border border-line bg-subtle text-secondary">
+                                    <Sparkles size={13} />
                                 </span>
-                                <div className="flex items-center gap-2 text-sm text-secondary">
-                                    <span className="h-1.5 w-1.5 animate-pulse bg-accent" />
-                                    Searching indexed documents...
+                                <div className="flex items-center gap-2 text-[12px] text-secondary">
+                                    <span className="flex gap-1">
+                                        {[0, 1, 2].map((i) => (
+                                            <span
+                                                key={i}
+                                                className="h-1.5 w-1.5 rounded-full bg-current opacity-60"
+                                                style={{ animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }}
+                                            />
+                                        ))}
+                                    </span>
+                                    Searching documents…
                                 </div>
                             </article>
                         )}
+                        <div ref={bottomRef} />
                     </div>
                 )}
             </div>
 
-            <div className="border-t border-line bg-subtle/40 p-3 sm:p-4">
-                <div className="mx-auto flex max-w-3xl items-end gap-2">
+            {/* Input */}
+            <div className="border-t border-line bg-surface p-3 sm:p-4">
+                <div className="mx-auto flex max-w-2xl items-end gap-2">
                     <textarea
                         value={input}
-                        onChange={(event) => setInput(event.target.value)}
-                        onKeyDown={(event) => {
-                            if (event.key === "Enter" && !event.shiftKey) {
-                                event.preventDefault();
-                                sendMessage();
-                            }
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
                         }}
-                        className="field min-h-11 max-h-36 flex-1 resize-y py-3"
-                        placeholder="Ask a question about your documents"
-                        aria-label="Chat message"
+                        className="field min-h-[40px] max-h-32 flex-1 resize-none py-2.5"
+                        placeholder="Ask a question about your documents…"
+                        rows={1}
+                        aria-label="Message"
                     />
                     <button
                         type="button"
-                        onClick={() => sendMessage()}
+                        onClick={() => send()}
                         disabled={busy || !input.trim()}
-                        className="button-primary h-11 w-11 px-0"
-                        aria-label="Send message"
-                        title="Send message"
+                        className="button-primary h-10 w-10 shrink-0 px-0 rounded"
+                        aria-label="Send"
                     >
-                        <SendHorizontal size={17} />
+                        <ArrowUp size={16} />
                     </button>
                 </div>
-                <p className="mx-auto mt-2 max-w-3xl text-[11px] text-secondary">
-                    Answers may be incomplete. Verify important details in the cited sources.
+                <p className="mx-auto mt-2 max-w-2xl text-[11px] text-secondary">
+                    Verify important details in the cited sources.
                 </p>
             </div>
         </section>

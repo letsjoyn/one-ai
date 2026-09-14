@@ -1,7 +1,19 @@
 import { Check, Database, Link2, Moon, ShieldCheck, Sun } from "lucide-react";
+import TeamSettings from "../components/TeamSettings";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
-import TeamSettings from "../components/TeamSettings";
+
+function Section({ title, subtitle, children }) {
+    return (
+        <section className="card overflow-hidden">
+            <div className="border-b border-line px-5 py-4">
+                <p className="text-[13px] font-semibold">{title}</p>
+                {subtitle && <p className="mt-0.5 text-[12px] text-secondary">{subtitle}</p>}
+            </div>
+            {children}
+        </section>
+    );
+}
 
 function SettingsPage() {
     const { user } = useAuth();
@@ -15,90 +27,81 @@ function SettingsPage() {
     ];
 
     return (
-        <div className="max-w-4xl space-y-7">
+        <div className="max-w-3xl space-y-8">
+            {/* Header */}
             <div>
-                <p className="eyebrow">Preferences</p>
-                <h1 className="mt-2 text-2xl font-semibold">Workspace settings</h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-secondary">
-                    Review the current connection and choose how OmniQuery appears on this device.
+                <p className="eyebrow mb-2">Configuration</p>
+                <h1 className="text-[1.6rem] font-semibold tracking-tight">Settings</h1>
+                <p className="mt-1.5 text-[13px] text-secondary">
+                    Manage your workspace preferences and connection details.
                 </p>
             </div>
 
-            <section className="border border-line bg-surface">
-                <div className="border-b border-line px-5 py-4">
-                    <h2 className="text-sm font-semibold">Appearance</h2>
-                    <p className="mt-1 text-xs text-secondary">Theme preference is saved in this browser.</p>
-                </div>
+            {/* Appearance */}
+            <Section title="Appearance" subtitle="Theme preference is saved in this browser.">
                 <div className="grid gap-3 p-5 sm:grid-cols-2">
                     {[
-                        { value: "light", label: "Light", icon: Sun },
-                        { value: "dark", label: "Dark", icon: Moon }
-                    ].map((option) => {
-                        const Icon = option.icon;
-                        const selected = theme === option.value;
+                        { value: "light", label: "Light mode", icon: Sun, desc: "White background, dark text" },
+                        { value: "dark", label: "Dark mode", icon: Moon, desc: "Dark background, light text" }
+                    ].map(({ value, label, icon: Icon, desc }) => {
+                        const selected = theme === value;
                         return (
                             <button
-                                key={option.value}
+                                key={value}
                                 type="button"
-                                onClick={() => {
-                                    if (!selected) {
-                                        toggleTheme();
-                                    }
-                                }}
-                                className={`flex min-h-20 items-center gap-4 border p-4 text-left transition ${
-                                    selected ? "border-accent bg-accent/5" : "border-line hover:bg-subtle"
+                                onClick={() => !selected && toggleTheme()}
+                                className={`flex items-start gap-4 rounded border p-4 text-left transition-colors ${
+                                    selected
+                                        ? "border-accent bg-accent/5"
+                                        : "border-line hover:bg-subtle"
                                 }`}
                             >
-                                <span className="grid h-9 w-9 place-items-center border border-line bg-surface text-secondary">
-                                    <Icon size={17} />
+                                <span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded border ${
+                                    selected ? "border-accent/40 bg-accent/10 text-accent" : "border-line bg-subtle text-secondary"
+                                }`}>
+                                    <Icon size={15} />
                                 </span>
                                 <span className="flex-1">
-                                    <span className="block text-sm font-semibold">{option.label}</span>
-                                    <span className="mt-1 block text-xs text-secondary">{option.label} interface</span>
+                                    <span className="block text-[13px] font-semibold">{label}</span>
+                                    <span className="mt-0.5 block text-[12px] text-secondary">{desc}</span>
                                 </span>
-                                {selected && <Check size={17} className="text-accent" />}
+                                {selected && <Check size={15} className="mt-0.5 shrink-0 text-accent" />}
                             </button>
                         );
                     })}
                 </div>
-            </section>
+            </Section>
 
+            {/* Team */}
             <TeamSettings />
 
-            <section className="border border-line bg-surface">
-                <div className="border-b border-line px-5 py-4">
-                    <h2 className="text-sm font-semibold">Connection</h2>
-                    <p className="mt-1 text-xs text-secondary">Runtime values used by the current frontend session.</p>
-                </div>
+            {/* Connection */}
+            <Section title="Connection" subtitle="Runtime values used by the current frontend session.">
                 <div className="divide-y divide-line">
-                    {connectionRows.map((row) => {
-                        const Icon = row.icon;
-                        return (
-                            <div key={row.label} className="grid gap-3 px-5 py-4 sm:grid-cols-[190px_minmax(0,1fr)] sm:items-center">
-                                <div className="flex items-center gap-3">
-                                    <Icon size={16} className="text-secondary" />
-                                    <p className="text-xs font-medium text-secondary">{row.label}</p>
-                                </div>
-                                <p className="min-w-0 break-all font-mono text-xs text-primary sm:text-right">{row.value}</p>
+                    {connectionRows.map(({ label, value, icon: Icon }) => (
+                        <div key={label} className="grid gap-3 px-5 py-3.5 sm:grid-cols-[180px_minmax(0,1fr)] sm:items-center">
+                            <div className="flex items-center gap-2.5">
+                                <Icon size={14} className="text-secondary" />
+                                <p className="text-[12px] text-secondary">{label}</p>
                             </div>
-                        );
-                    })}
+                            <p className="mono min-w-0 break-all text-primary sm:text-right">{value}</p>
+                        </div>
+                    ))}
                 </div>
-            </section>
+            </Section>
 
-            <section className="border border-line bg-surface">
-                <div className="grid gap-4 p-5 sm:grid-cols-[1fr_auto] sm:items-center">
+            {/* RAG mode */}
+            <Section title="Processing mode">
+                <div className="flex items-center justify-between px-5 py-4">
                     <div>
-                        <h2 className="text-sm font-semibold">RAG processing mode</h2>
-                        <p className="mt-1 text-xs leading-5 text-secondary">
-                            Documents are queued for asynchronous processing and retrieved through vector search.
+                        <p className="text-[13px] font-medium">RAG — Retrieval-augmented generation</p>
+                        <p className="mt-0.5 text-[12px] text-secondary">
+                            Documents are queued, chunked, embedded, and retrieved via vector search.
                         </p>
                     </div>
-                    <span className="inline-flex h-7 items-center border border-emerald-300 bg-emerald-50 px-2 text-xs font-semibold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
-                        Enabled
-                    </span>
+                    <span className="badge badge-ready ml-4 shrink-0">Active</span>
                 </div>
-            </section>
+            </Section>
         </div>
     );
 }

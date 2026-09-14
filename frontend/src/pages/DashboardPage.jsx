@@ -4,6 +4,18 @@ import DocumentTable from "../components/DocumentTable";
 import Uploader from "../components/Uploader";
 import { deleteDocument, fetchDocuments } from "../api/documents";
 
+function StatCard({ label, value, icon: Icon, accent }) {
+    return (
+        <div className="card flex items-center justify-between px-5 py-4">
+            <div>
+                <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">{label}</p>
+                <p className="mt-2 text-3xl font-semibold tabular-nums tracking-tight">{value}</p>
+            </div>
+            <Icon size={18} className={accent} strokeWidth={1.8} />
+        </div>
+    );
+}
+
 function DashboardPage() {
     const [documents, setDocuments] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -11,38 +23,33 @@ function DashboardPage() {
     const [deletingId, setDeletingId] = useState("");
 
     const metrics = useMemo(() => {
-        const ready = documents.filter((document) => document.status === "ready").length;
-        const failed = documents.filter((document) => document.status === "failed").length;
+        const ready = documents.filter((d) => d.status === "ready").length;
+        const failed = documents.filter((d) => d.status === "failed").length;
         const processing = documents.length - ready - failed;
-
         return [
-            { label: "Total files", value: documents.length, icon: Files },
-            { label: "Ready", value: ready, icon: CheckCircle2 },
-            { label: "Processing", value: processing, icon: Clock3 },
-            { label: "Failed", value: failed, icon: AlertCircle }
+            { label: "Total", value: documents.length, icon: Files, accent: "text-secondary" },
+            { label: "Ready", value: ready, icon: CheckCircle2, accent: "text-[rgb(var(--success))]" },
+            { label: "Processing", value: processing, icon: Clock3, accent: "text-[rgb(var(--warning))]" },
+            { label: "Failed", value: failed, icon: AlertCircle, accent: "text-[rgb(var(--danger))]" },
         ];
     }, [documents]);
 
-    function onUploaded(newDocument) {
-        setDocuments((current) => {
-            const filtered = current.filter((item) => item.id !== newDocument.id);
-            return [newDocument, ...filtered];
+    function onUploaded(newDoc) {
+        setDocuments((curr) => {
+            const filtered = curr.filter((d) => d.id !== newDoc.id);
+            return [newDoc, ...filtered];
         });
     }
 
     async function handleDelete(document) {
-        if (!window.confirm(`Delete "${document.name}" and all indexed content?`)) {
-            return;
-        }
-
+        if (!window.confirm(`Delete "${document.name}" and all indexed content?`)) return;
         setDeletingId(document.id);
         try {
             await deleteDocument(document.id);
-            setDocuments((current) => current.filter((item) => item.id !== document.id));
+            setDocuments((curr) => curr.filter((d) => d.id !== document.id));
             setLoadError("");
-        } catch (error) {
-            console.error("Failed to delete document", error);
-            setLoadError(error?.response?.data?.error || "Could not delete the document.");
+        } catch (err) {
+            setLoadError(err?.response?.data?.error || "Could not delete the document.");
         } finally {
             setDeletingId("");
         }
@@ -50,110 +57,83 @@ function DashboardPage() {
 
     useEffect(() => {
         let cancelled = false;
-
-        async function loadDocuments() {
+        async function load() {
             try {
                 const docs = await fetchDocuments();
                 if (!cancelled) {
-                    const uniqueDocs = [];
-                    const seenIds = new Set();
+                    const seen = new Set();
+                    const unique = [];
                     for (const doc of docs) {
-                        if (doc.documentId && !seenIds.has(doc.documentId)) {
-                            seenIds.add(doc.documentId);
-                            uniqueDocs.push(doc);
+                        if (doc.documentId && !seen.has(doc.documentId)) {
+                            seen.add(doc.documentId);
+                            unique.push(doc);
                         }
                     }
-                    setDocuments(
-                        uniqueDocs.map((document) => ({
-                            id: document.documentId,
-                            name: document.displayName || document.filePath?.split("/").pop() || document.documentId,
-                            status: document.status,
-                            uploadedAt: document.createdAt || document.updatedAt || new Date().toISOString(),
-                            chunks: document.chunks,
-                            error: document.error
-                        }))
-                    );
+                    setDocuments(unique.map((doc) => ({
+                        id: doc.documentId,
+                        name: doc.displayName || doc.filePath?.split("/").pop() || doc.documentId,
+                        status: doc.status,
+                        uploadedAt: doc.createdAt || doc.updatedAt || new Date().toISOString(),
+                        chunks: doc.chunks,
+                        error: doc.error,
+                    })));
                     setLoadError("");
                 }
-            } catch (error) {
-                console.error("Failed to load documents", error);
-                if (!cancelled) {
-                    setLoadError("Could not refresh document status. Check the gateway and AI worker.");
-                }
+            } catch {
+                if (!cancelled) setLoadError("Could not refresh document status.");
             } finally {
-                if (!cancelled) {
-                    setLoading(false);
-                }
+                if (!cancelled) setLoading(false);
             }
         }
-
-        loadDocuments();
-        const timer = setInterval(loadDocuments, 6000);
-
-        return () => {
-            cancelled = true;
-            clearInterval(timer);
-        };
+        load();
+        const t = setInterval(load, 6000);
+        return () => { cancelled = true; clearInterval(t); };
     }, []);
 
     return (
-        <div className="space-y-7">
-            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div className="space-y-8">
+            {/* Page header */}
+            <div className="flex items-end justify-between">
                 <div>
-                    <p className="eyebrow">Knowledge base</p>
-                    <h1 className="mt-2 text-2xl font-semibold">Document library</h1>
-                    <p className="mt-2 max-w-2xl text-sm leading-6 text-secondary">
-                        Upload source material and monitor indexing before using it in chat.
+                    <p className="eyebrow mb-2">Knowledge base</p>
+                    <h1 className="text-[1.6rem] font-semibold tracking-tight">Documents</h1>
+                    <p className="mt-1.5 text-[13px] text-secondary">
+                        Upload source material and monitor indexing.
                     </p>
                 </div>
-                <p className="text-xs text-secondary">Status refreshes every 6 seconds</p>
+                <p className="text-[11px] text-secondary tabular-nums hidden sm:block">Auto-refreshes every 6s</p>
             </div>
 
-            <section className="grid border border-line bg-surface sm:grid-cols-2 xl:grid-cols-4">
-                {metrics.map((metric, index) => {
-                    const Icon = metric.icon;
-                    return (
-                        <div
-                            key={metric.label}
-                            className={`flex min-h-24 items-center justify-between p-4 ${
-                                index < metrics.length - 1 ? "border-b border-line sm:border-b-0 sm:border-r" : ""
-                            } ${index === 1 ? "sm:border-r-0 xl:border-r" : ""}`}
-                        >
-                            <div>
-                                <p className="text-xs font-medium text-secondary">{metric.label}</p>
-                                <p className="mt-2 text-2xl font-semibold tabular-nums">{metric.value}</p>
-                            </div>
-                            <Icon size={20} className="text-secondary" strokeWidth={1.7} />
-                        </div>
-                    );
-                })}
-            </section>
+            {/* Stats row */}
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+                {metrics.map((m) => (
+                    <StatCard key={m.label} {...m} />
+                ))}
+            </div>
 
-            <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+            {/* Error */}
+            {loadError && (
+                <div className="flex items-center gap-2.5 rounded border border-red-200 bg-red-50 px-4 py-3 text-[12px] text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-400">
+                    <AlertCircle size={14} className="shrink-0" />
+                    {loadError}
+                </div>
+            )}
+
+            {/* Two-column */}
+            <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+                {/* Upload */}
                 <section>
-                    <div className="mb-3">
-                        <h2 className="text-sm font-semibold">Add a document</h2>
-                        <p className="mt-1 text-xs text-secondary">PDF, text, and Markdown files are uploaded directly to private storage.</p>
-                    </div>
+                    <p className="mb-3 text-[12px] font-semibold">Add documents</p>
+                    <p className="mb-4 text-[12px] text-secondary">PDF, TXT, Markdown — multiple files at once.</p>
                     <Uploader onUploaded={onUploaded} />
                 </section>
 
+                {/* File list */}
                 <section className="min-w-0">
-                    <div className="mb-3 flex items-end justify-between">
-                        <div>
-                            <h2 className="text-sm font-semibold">Files</h2>
-                            <p className="mt-1 text-xs text-secondary">Indexed files become available to the chat assistant.</p>
-                        </div>
-                        <p className="text-xs tabular-nums text-secondary">{documents.length} total</p>
+                    <div className="mb-3 flex items-center justify-between">
+                        <p className="text-[12px] font-semibold">Indexed files</p>
+                        <p className="text-[11px] tabular-nums text-secondary">{documents.length} total</p>
                     </div>
-
-                    {loadError && (
-                        <div className="mb-3 flex items-start gap-2 border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
-                            <AlertCircle className="mt-0.5 shrink-0" size={14} />
-                            {loadError}
-                        </div>
-                    )}
-
                     <DocumentTable
                         rows={documents}
                         loading={loading}

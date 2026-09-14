@@ -15,7 +15,7 @@ function ThemeToggle({ className = "" }) {
             aria-label={`Switch to ${targetTheme} mode`}
             title={`Switch to ${targetTheme} mode`}
         >
-            <Icon size={17} />
+            <Icon size={15} />
         </button>
     );
 }

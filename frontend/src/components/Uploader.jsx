@@ -1,137 +1,154 @@
-import { AlertCircle, CheckCircle2, FileText, Upload } from "lucide-react";
+import { AlertCircle, CheckCircle2, FileText, Loader2, Upload, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { markUploadComplete, requestUpload, uploadToSupabase } from "../api/documents";
 
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
-const ACCEPTED_EXTENSIONS = [".pdf", ".txt", ".md", ".markdown"];
-const ACCEPTED_FORMAT_LABEL = "PDF, TXT, MD";
+const MAX_BYTES = 25 * 1024 * 1024;
+const EXTENSIONS = [".pdf", ".txt", ".md", ".markdown"];
+const FORMAT_LABEL = "PDF · TXT · MD";
+
+const STATUS_ICON = {
+    pending: <span className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--warning))] opacity-60" />,
+    uploading: <Loader2 size={12} className="animate-spin text-accent" />,
+    success: <CheckCircle2 size={12} className="text-[rgb(var(--success))]" />,
+    error: <AlertCircle size={12} className="text-[rgb(var(--danger))]" />,
+};
+
+function FileRow({ f }) {
+    return (
+        <div className="flex items-center gap-3 rounded border border-line bg-subtle px-3 py-2">
+            <FileText size={12} className="shrink-0 text-secondary" />
+            <p className="mono flex-1 truncate text-[11px] text-primary" title={f.name}>{f.name}</p>
+            {f.status === "uploading" && (
+                <span className="tabular-nums text-[11px] text-secondary">{f.progress}%</span>
+            )}
+            {STATUS_ICON[f.status]}
+        </div>
+    );
+}
 
 function Uploader({ onUploaded }) {
     const inputRef = useRef(null);
-    const [isDragging, setIsDragging] = useState(false);
-    const [progress, setProgress] = useState(0);
+    const [dragging, setDragging] = useState(false);
+    const [queue, setQueue] = useState([]);
     const [busy, setBusy] = useState(false);
-    const [fileName, setFileName] = useState("");
-    const [message, setMessage] = useState(null);
+    const [globalError, setGlobalError] = useState("");
 
-    async function handleFile(file) {
-        setMessage(null);
-
-        const fileNameLower = file?.name?.toLowerCase() || "";
-        const supportedExtension = ACCEPTED_EXTENSIONS.some((extension) => fileNameLower.endsWith(extension));
-
-        if (!file || !supportedExtension) {
-            setMessage({ type: "error", text: `Choose one of these formats: ${ACCEPTED_FORMAT_LABEL}.` });
-            return;
-        }
-        if (file.size > MAX_UPLOAD_BYTES) {
-            setMessage({ type: "error", text: "Files must be 25 MB or smaller." });
-            return;
-        }
-
-        setBusy(true);
-        setFileName(file.name);
-        setProgress(10);
-
-        try {
-            const documentId = crypto.randomUUID();
-            const uploadInfo = await requestUpload(file);
-            setProgress(35);
-
-            await uploadToSupabase(file, uploadInfo.signedUrl);
-            setProgress(75);
-
-            await markUploadComplete(uploadInfo.filePath, documentId, file.name, uploadInfo.mimeType);
-            setProgress(100);
-
-            onUploaded({
-                id: documentId,
-                name: file.name,
-                status: "processing",
-                uploadedAt: new Date().toISOString()
-            });
-            setMessage({ type: "success", text: "Upload complete. Indexing has started." });
-        } catch (error) {
-            console.error(error);
-            setMessage({
-                type: "error",
-                text: error?.response?.data?.error || "Upload failed. Check the gateway and storage configuration."
-            });
-        } finally {
-            setBusy(false);
-            if (inputRef.current) {
-                inputRef.current.value = "";
-            }
-        }
+    function patchFile(id, patch) {
+        setQueue((q) => q.map((f) => (f.id === id ? { ...f, ...patch } : f)));
     }
 
-    function onDrop(event) {
-        event.preventDefault();
-        setIsDragging(false);
-        handleFile(event.dataTransfer.files?.[0]);
+    async function process(files) {
+        const valid = [], errors = [];
+        for (const file of files) {
+            const ok = EXTENSIONS.some((ext) => file.name.toLowerCase().endsWith(ext));
+            if (!ok) { errors.push(`${file.name}: unsupported format`); continue; }
+            if (file.size > MAX_BYTES) { errors.push(`${file.name}: exceeds 25 MB`); continue; }
+            valid.push(file);
+        }
+        if (errors.length) setGlobalError(errors.join("  ·  "));
+        if (!valid.length) return;
+
+        const entries = valid.map((file) => ({
+            id: crypto.randomUUID(), name: file.name, file,
+            status: "pending", progress: 0,
+        }));
+        setQueue((q) => [...q, ...entries]);
+        setBusy(true);
+        setGlobalError("");
+
+        for (const entry of entries) {
+            patchFile(entry.id, { status: "uploading", progress: 10 });
+            try {
+                const docId = crypto.randomUUID();
+                const info = await requestUpload(entry.file);
+                patchFile(entry.id, { progress: 35 });
+                await uploadToSupabase(entry.file, info.signedUrl);
+                patchFile(entry.id, { progress: 75 });
+                await markUploadComplete(info.filePath, docId, entry.file.name, info.mimeType);
+                patchFile(entry.id, { progress: 100, status: "success" });
+                onUploaded({ id: docId, name: entry.file.name, status: "processing", uploadedAt: new Date().toISOString() });
+            } catch (err) {
+                patchFile(entry.id, { status: "error", error: err?.response?.data?.error || "Upload failed" });
+            }
+        }
+
+        setBusy(false);
+        if (inputRef.current) inputRef.current.value = "";
+    }
+
+    function onDrop(e) {
+        e.preventDefault(); setDragging(false);
+        process(Array.from(e.dataTransfer.files || []));
     }
 
     return (
-        <div className="border border-line bg-surface">
+        <div className="card overflow-hidden">
+            {/* Drop zone */}
             <button
                 type="button"
-                onDragOver={(event) => {
-                    event.preventDefault();
-                    setIsDragging(true);
-                }}
-                onDragLeave={() => setIsDragging(false)}
+                onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
                 onDrop={onDrop}
-                onClick={() => !busy && inputRef.current?.click()}
-                disabled={busy}
-                className={`flex min-h-56 w-full flex-col items-center justify-center border-b border-line px-6 py-8 text-center transition ${
-                    isDragging ? "bg-accent/10" : "bg-surface hover:bg-subtle"
-                } disabled:cursor-wait`}
+                onClick={() => inputRef.current?.click()}
+                className={`flex min-h-40 w-full flex-col items-center justify-center gap-3 border-b border-line px-6 py-8 transition-colors ${
+                    dragging ? "bg-accent/5" : "hover:bg-subtle/60"
+                }`}
             >
-                <span className="grid h-11 w-11 place-items-center border border-line bg-subtle text-secondary">
-                    {busy ? <FileText size={20} /> : <Upload size={20} />}
+                <span className={`grid h-10 w-10 place-items-center rounded border transition-colors ${
+                    dragging ? "border-accent/40 bg-accent/10 text-accent" : "border-line bg-subtle text-secondary"
+                }`}>
+                    <Upload size={16} />
                 </span>
-                <p className="mt-5 text-sm font-semibold">
-                    {busy ? "Uploading document" : "Drop file or select document"}
-                </p>
-                <p className="mt-2 max-w-[260px] text-xs leading-5 text-secondary">
-                    {busy && fileName ? fileName : "Files are sent directly to configured storage before indexing."}
-                </p>
+                <div className="text-center">
+                    <p className="text-[13px] font-semibold">
+                        {dragging ? "Drop files" : "Drop files or click to browse"}
+                    </p>
+                    <p className="mt-1 text-[11px] text-secondary">{FORMAT_LABEL} · Max 25 MB · Multiple files</p>
+                </div>
                 <input
                     ref={inputRef}
                     type="file"
-                    accept=".pdf,.txt,.md,.markdown,application/pdf,application/x-pdf,text/plain,text/markdown"
+                    multiple
+                    accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown"
                     className="hidden"
-                    onChange={(event) => handleFile(event.target.files?.[0])}
+                    onChange={(e) => process(Array.from(e.target.files || []))}
                 />
             </button>
 
-            <div className="p-4">
-                <div className="flex items-center justify-between text-xs">
-                    <span className="text-secondary">{busy ? "Upload progress" : "Accepted format"}</span>
-                    <span className="font-medium tabular-nums">{busy ? `${progress}%` : ACCEPTED_FORMAT_LABEL}</span>
+            {/* Queue */}
+            {(queue.length > 0 || globalError) && (
+                <div className="p-3 space-y-2.5">
+                    {globalError && (
+                        <div className="flex items-start gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-400">
+                            <AlertCircle size={12} className="mt-0.5 shrink-0" />
+                            {globalError}
+                        </div>
+                    )}
+                    {queue.length > 0 && (
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <p className="text-[11px] text-secondary">
+                                    {busy
+                                        ? `Uploading ${queue.find((f) => f.status === "uploading")?.name ?? "…"}`
+                                        : `${queue.filter((f) => f.status === "success").length} / ${queue.length} uploaded`}
+                                </p>
+                                {!busy && (
+                                    <button
+                                        type="button"
+                                        onClick={() => { setQueue([]); setGlobalError(""); }}
+                                        className="flex items-center gap-1 text-[11px] text-secondary hover:text-primary transition-colors"
+                                    >
+                                        <X size={11} /> Clear
+                                    </button>
+                                )}
+                            </div>
+                            <div className="space-y-1.5 max-h-44 overflow-y-auto">
+                                {queue.map((f) => <FileRow key={f.id} f={f} />)}
+                            </div>
+                        </div>
+                    )}
                 </div>
-                <div className="mt-3 h-1 bg-subtle">
-                    <div
-                        className="h-1 bg-accent transition-all duration-300"
-                        style={{ width: busy || progress === 100 ? `${progress}%` : "0%" }}
-                    />
-                </div>
-
-                {message && (
-                    <div
-                        className={`mt-4 flex items-start gap-2 border px-3 py-2 text-xs ${
-                            message.type === "success"
-                                ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
-                                : "border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
-                        }`}
-                    >
-                        {message.type === "success"
-                            ? <CheckCircle2 className="mt-0.5 shrink-0" size={14} />
-                            : <AlertCircle className="mt-0.5 shrink-0" size={14} />}
-                        {message.text}
-                    </div>
-                )}
-            </div>
+            )}
         </div>
     );
 }

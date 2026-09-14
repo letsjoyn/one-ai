@@ -2,11 +2,7 @@ import { AlertCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import ChatBox from "../components/ChatBox";
 import ConversationSidebar from "../components/ConversationSidebar";
-import {
-    createConversation,
-    fetchConversations,
-    removeConversation
-} from "../api/conversations";
+import { createConversation, fetchConversations, removeConversation } from "../api/conversations";
 
 function ChatPage() {
     const [conversations, setConversations] = useState([]);
@@ -14,120 +10,91 @@ function ChatPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
-    const activeConversation = useMemo(
-        () => conversations.find((conversation) => conversation.id === activeId) || conversations[0],
+    const active = useMemo(
+        () => conversations.find((c) => c.id === activeId) || conversations[0],
         [activeId, conversations]
     );
 
     async function addConversation() {
         try {
-            const nextConversation = await createConversation();
-            setConversations((current) => [nextConversation, ...current]);
-            setActiveId(nextConversation.id);
+            const next = await createConversation();
+            setConversations((c) => [next, ...c]);
+            setActiveId(next.id);
             setError("");
-        } catch {
-            setError("Could not create a conversation.");
-        }
+        } catch { setError("Could not create a conversation."); }
     }
 
-    function replaceConversation(nextConversation) {
-        setConversations((current) => current.map((conversation) => {
-            return conversation.id === nextConversation.id ? nextConversation : conversation;
-        }));
+    function replaceConversation(next) {
+        setConversations((cs) => cs.map((c) => (c.id === next.id ? next : c)));
     }
 
-    async function deleteConversation(conversationId) {
-        if (!window.confirm("Delete this conversation permanently?")) {
-            return;
-        }
-
+    async function deleteConversation(id) {
+        if (!window.confirm("Delete this conversation permanently?")) return;
         try {
-            await removeConversation(conversationId);
-            const remaining = conversations.filter((conversation) => conversation.id !== conversationId);
-            if (!remaining.length) {
-                const replacement = await createConversation();
-                setConversations([replacement]);
-                setActiveId(replacement.id);
+            await removeConversation(id);
+            const rest = conversations.filter((c) => c.id !== id);
+            if (!rest.length) {
+                const fresh = await createConversation();
+                setConversations([fresh]);
+                setActiveId(fresh.id);
             } else {
-                setConversations(remaining);
-                if (activeId === conversationId) {
-                    setActiveId(remaining[0].id);
-                }
+                setConversations(rest);
+                if (activeId === id) setActiveId(rest[0].id);
             }
             setError("");
-        } catch {
-            setError("Could not delete the conversation.");
-        }
+        } catch { setError("Could not delete the conversation."); }
     }
 
     useEffect(() => {
         let cancelled = false;
-
         async function load() {
             try {
                 let items = await fetchConversations();
-                if (!items.length) {
-                    items = [await createConversation()];
-                }
-                if (!cancelled) {
-                    setConversations(items);
-                    setActiveId(items[0].id);
-                    setError("");
-                }
+                if (!items.length) items = [await createConversation()];
+                if (!cancelled) { setConversations(items); setActiveId(items[0].id); setError(""); }
             } catch {
-                if (!cancelled) {
-                    setError("Could not load conversations. Check the gateway connection.");
-                }
+                if (!cancelled) setError("Could not load conversations. Check the gateway connection.");
             } finally {
-                if (!cancelled) {
-                    setLoading(false);
-                }
+                if (!cancelled) setLoading(false);
             }
         }
-
         load();
-        return () => {
-            cancelled = true;
-        };
+        return () => { cancelled = true; };
     }, []);
 
     return (
-        <div className="space-y-5">
+        <div className="space-y-6">
             <div>
-                <p className="eyebrow">Research assistant</p>
-                <h1 className="mt-2 text-2xl font-semibold">Ask your documents</h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-secondary">
-                    Questions are answered from indexed content and include the retrieved source passages.
+                <p className="eyebrow mb-2">Research assistant</p>
+                <h1 className="text-[1.6rem] font-semibold tracking-tight">Chat</h1>
+                <p className="mt-1.5 text-[13px] text-secondary">
+                    Ask questions — answers cite the source passages they were drawn from.
                 </p>
             </div>
 
-            <div className="grid min-h-[680px] min-w-0 overflow-hidden border border-line bg-surface lg:h-[calc(100vh-13rem)] lg:min-h-[620px] lg:grid-cols-[270px_minmax(0,1fr)]">
+            {error && (
+                <div className="flex items-center gap-2.5 rounded border border-red-200 bg-red-50 px-4 py-3 text-[12px] text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-400">
+                    <AlertCircle size={13} className="shrink-0" />
+                    {error}
+                </div>
+            )}
+
+            <div className="card overflow-hidden lg:h-[calc(100vh-13rem)] lg:min-h-[580px] grid min-h-[600px] lg:grid-cols-[220px_minmax(0,1fr)]">
                 <ConversationSidebar
                     conversations={conversations}
-                    activeId={activeConversation?.id}
+                    activeId={active?.id}
                     onSelect={setActiveId}
                     onCreate={addConversation}
                     onDelete={deleteConversation}
                 />
-                {activeConversation && (
-                    <ChatBox
-                        key={activeConversation.id}
-                        conversation={activeConversation}
-                        onReplace={replaceConversation}
-                    />
-                )}
-                {!activeConversation && (
-                    <div className="grid min-h-[420px] place-items-center p-6 text-sm text-secondary">
-                        {loading ? "Loading conversations..." : "No conversation selected"}
+                {active ? (
+                    <ChatBox key={active.id} conversation={active} onReplace={replaceConversation} />
+                ) : (
+                    <div className="grid place-items-center p-6 text-[12px] text-secondary">
+                        {loading ? "Loading…" : "No conversation selected"}
                     </div>
                 )}
             </div>
-            {error && (
-                <div className="flex items-start gap-2 border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
-                    <AlertCircle className="mt-0.5 shrink-0" size={14} />
-                    {error}
-                </div>
-            )}
         </div>
     );
 }
