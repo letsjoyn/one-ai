@@ -15,10 +15,10 @@ test("register, upload, chat with sources, delete, and invite a teammate", async
     await expect(page.getByText("handbook.pdf").first()).toBeVisible();
     await expect(page.getByText("Ready")).toBeVisible({ timeout: 10000 });
 
-    await page.getByRole("link", { name: "Chats" }).click();
-    await expect(page.getByRole("heading", { name: "Ask your documents" })).toBeVisible();
-    await page.getByLabel("Chat message").fill("How many paid vacation days do employees receive?");
-    await page.getByRole("button", { name: "Send message" }).click();
+    await page.getByRole("link", { name: "Chat" }).click();
+    await expect(page.getByRole("heading", { name: "Chat" })).toBeVisible();
+    await page.getByLabel("Message").fill("How many paid vacation days do employees receive?");
+    await page.getByRole("button", { name: "Send" }).click();
     await expect(page.getByText(/20 paid vacation days/)).toBeVisible();
     await page.getByRole("button", { name: "1 source" }).click();
     await expect(page.getByText(/Full-time employees receive 20 paid vacation days/)).toBeVisible();
@@ -29,7 +29,7 @@ test("register, upload, chat with sources, delete, and invite a teammate", async
     await expect(page.getByText("handbook.pdf")).toHaveCount(0);
 
     await page.getByRole("link", { name: "Settings" }).click();
-    await expect(page.getByRole("heading", { name: "Workspace settings" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
     await page.getByLabel("Invitee email").fill("teammate@example.com");
     await page.getByLabel("Invitation role").selectOption("member");
     await page.getByRole("button", { name: "Invite" }).click();
