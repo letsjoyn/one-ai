@@ -52,6 +52,9 @@ def ensure_mongo_indexes() -> None:
         name="tenant_document",
     )
 
+    import logging as _logging
+    _vi_logger = _logging.getLogger(__name__)
+
     try:
         existing = {idx["name"] for idx in get_collection().list_search_indexes()}
         if settings.mongo_vector_index not in existing:
@@ -74,8 +77,23 @@ def ensure_mongo_indexes() -> None:
                 type="vectorSearch",
             )
             get_collection().create_search_index(model=model)
-    except Exception:
-        pass
+            _vi_logger.info("Vector search index '%s' created.", settings.mongo_vector_index)
+        else:
+            _vi_logger.debug("Vector search index '%s' already exists.", settings.mongo_vector_index)
+    except Exception as _vi_exc:  # noqa: BLE001
+        error_msg = str(_vi_exc).lower()
+        # Atlas returns an error when the index already exists — that is safe to ignore.
+        if "already exists" in error_msg or "duplicate" in error_msg:
+            _vi_logger.debug("Vector search index already exists (confirmed by error message).")
+        else:
+            # A real failure — log prominently so it is visible in health checks.
+            _vi_logger.error(
+                "Failed to create vector search index '%s': %s — "
+                "vector similarity search may not work until this is resolved.",
+                settings.mongo_vector_index,
+                _vi_exc,
+            )
+
 
 
 def get_vector_store() -> MongoDBAtlasVectorSearch:

@@ -10,7 +10,8 @@ export function signToken(user) {
             userId: user._id.toString(),
             tenantId: user.tenantId,
             role: user.role,
-            email: user.email
+            email: user.email,
+            tv: user.tokenVersion ?? 0  // token version — used to revoke JWTs on password reset
         },
         env.JWT_SECRET,
         {

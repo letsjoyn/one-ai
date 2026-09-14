@@ -42,6 +42,15 @@ export async function requireAuth(req, _res, next) {
             return next(error);
         }
 
+        // Revoke tokens issued before a password reset / sign-out-everywhere event.
+        const jwtVersion = decoded.tv ?? 0;
+        const dbVersion = user.tokenVersion ?? 0;
+        if (jwtVersion < dbVersion) {
+            const error = new Error("Session has been revoked. Please sign in again.");
+            error.status = 401;
+            return next(error);
+        }
+
         req.user = {
             userId: user._id.toString(),
             tenantId: user.tenantId,

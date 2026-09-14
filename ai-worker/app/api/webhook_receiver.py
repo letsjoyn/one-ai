@@ -1,8 +1,11 @@
 import logging
+import re
 import traceback
 import time
+import uuid
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
@@ -19,6 +22,58 @@ from app.core.monitoring import DOCUMENT_PROCESSING, DOCUMENT_PROCESSING_DURATIO
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Reject webhook bodies larger than 64 KB before reading them into memory.
+MAX_WEBHOOK_BYTES = 64 * 1024
+
+# Allowed MIME types for processing.
+ALLOWED_MIME_TYPES = {
+    "application/pdf",
+    "application/x-pdf",
+    "text/plain",
+    "text/markdown",
+    "application/octet-stream",
+}
+
+_TENANT_PATH_RE = re.compile(r"^tenants/[a-zA-Z0-9_-]+/[a-zA-Z0-9_./-]+$")
+
+
+class WebhookPayload(BaseModel):
+    """Strict Pydantic model for webhook payloads — rejects unknown fields."""
+
+    model_config = {"extra": "forbid"}
+
+    filePath: str = Field(min_length=1, max_length=1024)
+    userId: str = Field(min_length=1, max_length=100)
+    documentId: str = Field(min_length=32, max_length=36)
+    displayName: str | None = Field(default=None, max_length=512)
+    mimeType: str | None = Field(default=None, max_length=128)
+
+    @field_validator("documentId")
+    @classmethod
+    def validate_uuid(cls, v: str) -> str:
+        try:
+            uuid.UUID(v)
+        except ValueError:
+            raise ValueError("documentId must be a valid UUID")
+        return v
+
+    @field_validator("filePath")
+    @classmethod
+    def validate_file_path(cls, v: str) -> str:
+        if not _TENANT_PATH_RE.match(v):
+            raise ValueError("filePath has an invalid format")
+        # Prevent path traversal
+        if ".." in v:
+            raise ValueError("filePath must not contain '..'")
+        return v
+
+    @field_validator("mimeType")
+    @classmethod
+    def validate_mime_type(cls, v: str | None) -> str | None:
+        if v is not None and v.lower() not in ALLOWED_MIME_TYPES:
+            raise ValueError(f"Unsupported mimeType: {v}")
+        return v
 
 
 def public_processing_error(exc: Exception) -> str:
@@ -99,7 +154,23 @@ def process_document_job(
 @router.post("/api/process-webhook")
 async def process_document_webhook(request: Request):
     settings = get_settings()
+
+    # ── Body-size guard: check Content-Length before reading body ──────────
+    content_length_header = request.headers.get("content-length")
+    if content_length_header:
+        try:
+            if int(content_length_header) > MAX_WEBHOOK_BYTES:
+                raise HTTPException(status_code=413, detail="Request body too large")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid Content-Length header")
+
     body_bytes = await request.body()
+
+    # Enforce limit even if Content-Length was absent or falsified
+    if len(body_bytes) > MAX_WEBHOOK_BYTES:
+        raise HTTPException(status_code=413, detail="Request body too large")
+
+    # ── Signature verification ─────────────────────────────────────────────
     signature = request.headers.get("Upstash-Signature")
     local_bypass = (
         settings.env == "development"
@@ -113,40 +184,42 @@ async def process_document_webhook(request: Request):
 
     if not local_bypass:
         receiver = get_qstash_receiver()
-
         try:
             receiver.verify(body=body_bytes.decode("utf-8"), signature=signature)
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=401, detail="Invalid QStash Signature") from exc
 
-    payload = await request.json()
-    file_path = payload.get("filePath")
-    user_id = payload.get("userId")
-    document_id = payload.get("documentId")
-    display_name = payload.get("displayName")
-    mime_type = payload.get("mimeType")
+    # ── Payload validation via Pydantic ────────────────────────────────────
+    import json
+    try:
+        raw = json.loads(body_bytes)
+        payload = WebhookPayload.model_validate(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid payload: {exc}") from exc
 
-    if not file_path or not user_id or not document_id:
-        raise HTTPException(status_code=400, detail="Missing filePath, userId or documentId")
+    # ── Ensure filePath belongs to the declared userId ─────────────────────
+    expected_prefix = f"tenants/{payload.userId}/"
+    if not payload.filePath.startswith(expected_prefix):
+        raise HTTPException(status_code=403, detail="filePath does not belong to userId")
 
-    existing = get_document_status(document_id=document_id, user_id=user_id)
+    existing = get_document_status(document_id=payload.documentId, user_id=payload.userId)
     if existing and existing.get("status") in {"ready", "deleted"}:
         return {
             "status": existing.get("status"),
-            "file": file_path,
-            "documentId": document_id,
+            "file": payload.filePath,
+            "documentId": payload.documentId,
         }
 
     ensure_document_status(
-        document_id=document_id,
-        user_id=user_id,
-        file_path=file_path,
-        display_name=display_name,
+        document_id=payload.documentId,
+        user_id=payload.userId,
+        file_path=payload.filePath,
+        display_name=payload.displayName,
     )
     claimed = claim_document_processing(
-        document_id=document_id,
-        user_id=user_id,
-        file_path=file_path,
+        document_id=payload.documentId,
+        user_id=payload.userId,
+        file_path=payload.filePath,
     )
     if not claimed:
         raise HTTPException(
@@ -156,15 +229,15 @@ async def process_document_webhook(request: Request):
 
     result_status = await run_in_threadpool(
         process_document_job,
-        file_path,
-        user_id,
-        document_id,
-        display_name,
-        mime_type,
+        payload.filePath,
+        payload.userId,
+        payload.documentId,
+        payload.displayName,
+        payload.mimeType,
     )
 
     return {
         "status": result_status,
-        "file": file_path,
-        "documentId": document_id,
+        "file": payload.filePath,
+        "documentId": payload.documentId,
     }

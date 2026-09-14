@@ -12,6 +12,10 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 
 COPY app ./app
 
+# Run as non-root user to limit container escape blast radius
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+USER appuser
+
 EXPOSE 8000
 
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

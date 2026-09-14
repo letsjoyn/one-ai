@@ -26,6 +26,12 @@ const userSchema = new mongoose.Schema(
         emailVerifiedAt: {
             type: Date,
             default: null
+        },
+        // Incremented on password reset / "sign out everywhere".
+        // Stored in JWTs; if the DB value is higher, the token is revoked.
+        tokenVersion: {
+            type: Number,
+            default: 0
         }
     },
     { timestamps: true }

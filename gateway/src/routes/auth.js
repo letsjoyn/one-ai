@@ -23,7 +23,7 @@ const router = express.Router();
 
 const authSchema = z.object({
     email: z.string().trim().email().max(254),
-    password: z.string().min(8).max(128)
+    password: z.string().min(12).max(128)
 });
 
 const emailSchema = z.object({
@@ -35,7 +35,7 @@ const tokenSchema = z.object({
 });
 
 const resetSchema = tokenSchema.extend({
-    password: z.string().min(8).max(128)
+    password: z.string().min(12).max(128)
 });
 
 router.post("/register", authRateLimit, async (req, res, next) => {
@@ -46,7 +46,18 @@ router.post("/register", authRateLimit, async (req, res, next) => {
 
         const existing = await User.findOne({ email });
         if (existing) {
-            return res.status(409).json({ error: "Email already registered" });
+            // Return the same response as success to prevent email enumeration.
+            // If email verification is required the attacker learns nothing useful;
+            // if it is not required, we still avoid confirming account existence.
+            if (env.REQUIRE_EMAIL_VERIFICATION) {
+                return res.status(202).json({
+                    requiresVerification: true,
+                    message: "If this address is new, a verification email has been sent."
+                });
+            }
+            return res.status(202).json({
+                message: "If this address is new, your account has been created."
+            });
         }
 
         const passwordHash = await bcrypt.hash(parsed.password, 12);
@@ -65,22 +76,26 @@ router.post("/register", authRateLimit, async (req, res, next) => {
                 24 * 60
             );
             await sendVerificationEmail(user.email, verificationToken);
-            return res.status(201).json({
+            return res.status(202).json({
                 requiresVerification: true,
-                email: user.email,
-                message: "Check your email to verify your account."
+                message: "If this address is new, a verification email has been sent."
             });
         }
 
         const token = signToken(user);
-
         return res.status(201).json({
             token,
             user: serializeUser(user)
         });
     } catch (error) {
         if (error?.code === 11000) {
-            return res.status(409).json({ error: "Email already registered" });
+            // Race condition on unique index — treat the same as duplicate email.
+            return res.status(202).json({
+                requiresVerification: env.REQUIRE_EMAIL_VERIFICATION,
+                message: env.REQUIRE_EMAIL_VERIFICATION
+                    ? "If this address is new, a verification email has been sent."
+                    : "If this address is new, your account has been created."
+            });
         }
         next(error);
     }
@@ -215,7 +230,8 @@ router.post("/reset-password", authRateLimit, async (req, res, next) => {
 
         const passwordHash = await bcrypt.hash(parsed.password, 12);
         await User.findByIdAndUpdate(actionToken.userId, {
-            $set: { passwordHash }
+            $set: { passwordHash },
+            $inc: { tokenVersion: 1 }  // revoke all existing JWTs immediately
         });
         await ActionToken.deleteMany({
             userId: actionToken.userId,
