@@ -41,13 +41,14 @@ _TENANT_PATH_RE = re.compile(r"^tenants/[a-zA-Z0-9_-]+/[a-zA-Z0-9_./-]+$")
 class WebhookPayload(BaseModel):
     """Strict Pydantic model for webhook payloads — rejects unknown fields."""
 
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "ignore"}
 
     filePath: str = Field(min_length=1, max_length=1024)
     userId: str = Field(min_length=1, max_length=100)
     documentId: str = Field(min_length=32, max_length=36)
     displayName: str | None = Field(default=None, max_length=512)
     mimeType: str | None = Field(default=None, max_length=128)
+    fileType: str | None = Field(default=None, max_length=64)
 
     @field_validator("documentId")
     @classmethod

@@ -21,10 +21,16 @@ import { logger } from "../utils/logger.js";
 
 const router = express.Router();
 
-const authSchema = z.object({
+const registerSchema = z.object({
     email: z.string().trim().email().max(254),
     password: z.string().min(12).max(128)
 });
+
+const loginSchema = z.object({
+    email: z.string().trim().email().max(254),
+    password: z.string().min(1).max(128)
+});
+
 
 const emailSchema = z.object({
     email: z.string().trim().email().max(254)
@@ -41,7 +47,7 @@ const resetSchema = tokenSchema.extend({
 router.post("/register", authRateLimit, async (req, res, next) => {
     try {
         await connectDB();
-        const parsed = authSchema.parse(req.body);
+        const parsed = registerSchema.parse(req.body);
         const email = parsed.email.toLowerCase();
 
         const existing = await User.findOne({ email });
@@ -104,7 +110,7 @@ router.post("/register", authRateLimit, async (req, res, next) => {
 router.post("/login", authRateLimit, async (req, res, next) => {
     try {
         await connectDB();
-        const parsed = authSchema.parse(req.body);
+        const parsed = loginSchema.parse(req.body);
         const email = parsed.email.toLowerCase();
 
         const user = await User.findOne({ email });

@@ -27,7 +27,7 @@ const supportedUploadTypes = [
     {
         extension: ".pdf",
         label: "PDF",
-        mimeTypes: ["application/pdf", "application/x-pdf"]
+        mimeTypes: ["application/pdf", "application/x-pdf", "application/octet-stream"]
     },
     {
         extension: ".txt",
