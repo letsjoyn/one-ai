@@ -99,10 +99,10 @@ function RegisterPage() {
                                     onChange={(event) => setPassword(event.target.value)}
                                     type="password"
                                     autoComplete="new-password"
-                                    minLength={8}
+                                    minLength={12}
                                     required
                                     className="field h-11"
-                                    placeholder="At least 8 characters"
+                                    placeholder="At least 12 characters"
                                 />
                             </label>
 

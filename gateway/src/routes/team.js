@@ -31,7 +31,7 @@ const roleSchema = z.object({
 
 const acceptSchema = z.object({
     token: z.string().min(20).max(500),
-    password: z.string().min(8).max(128)
+    password: z.string().min(12).max(128)
 });
 
 function serializeInvitation(invitation) {

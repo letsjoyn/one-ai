@@ -2,15 +2,16 @@ import { expect, test } from "@playwright/test";
 
 test("register, upload, chat with sources, delete, and invite a teammate", async ({ page }) => {
     await page.goto("/register");
-    await page.getByLabel("Work email").fill("engineer@example.com");
+    const uniqueEmail = `engineer-${Date.now()}@example.com`;
+    await page.getByLabel("Work email").fill(uniqueEmail);
     await page.getByLabel("Password").fill("correct-horse-battery-staple");
     await page.getByRole("button", { name: "Create account" }).click();
 
     await expect(page).toHaveURL(/\/dashboard$/);
-    await expect(page.getByRole("heading", { name: "Document library" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Documents" })).toBeVisible();
 
     await page.locator('input[type="file"]').setInputFiles("e2e/fixtures/handbook.pdf");
-    await expect(page.getByText("Upload complete. Indexing has started.")).toBeVisible();
+    await expect(page.getByText("1 / 1 uploaded")).toBeVisible();
     await expect(page.getByText("handbook.pdf").first()).toBeVisible();
     await expect(page.getByText("Ready")).toBeVisible({ timeout: 10000 });
 

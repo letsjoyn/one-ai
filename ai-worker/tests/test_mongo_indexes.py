@@ -17,6 +17,7 @@ class MongoIndexTests(unittest.TestCase):
         client = Mock()
         status_collection = Mock()
         vector_collection = Mock()
+        vector_collection.list_search_indexes.return_value = []
         get_mongo_client.return_value = client
         get_document_status_collection.return_value = status_collection
         get_collection.return_value = vector_collection

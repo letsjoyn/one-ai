@@ -35,7 +35,7 @@ function ResetPasswordPage() {
         <AuthFrame
             eyebrow="Account recovery"
             title="Choose a new password"
-            description="Use at least eight characters and keep this password unique to OmniQuery."
+            description="Use at least twelve characters and keep this password unique to OmniQuery."
         >
             {!token && (
                 <div className="mt-6 border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
@@ -60,7 +60,7 @@ function ResetPasswordPage() {
                             className="field h-11"
                             type="password"
                             autoComplete="new-password"
-                            minLength={8}
+                            minLength={12}
                             required
                             value={password}
                             onChange={(event) => setPassword(event.target.value)}
@@ -72,7 +72,7 @@ function ResetPasswordPage() {
                             className="field h-11"
                             type="password"
                             autoComplete="new-password"
-                            minLength={8}
+                            minLength={12}
                             required
                             value={confirmPassword}
                             onChange={(event) => setConfirmPassword(event.target.value)}

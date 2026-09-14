@@ -49,7 +49,7 @@ function AcceptInvitePage() {
                         className="field h-11"
                         type="password"
                         autoComplete="current-password"
-                        minLength={8}
+                        minLength={12}
                         required
                         value={password}
                         onChange={(event) => setPassword(event.target.value)}

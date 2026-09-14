@@ -40,7 +40,7 @@ class LlmServiceTests(unittest.TestCase):
             pre_filter={"tenant_id": "tenant-1"},
         )
         request = groq.return_value.chat.completions.create.call_args.kwargs
-        self.assertIn("\n\nContext passages:\n", request["messages"][1]["content"])
+        self.assertIn("\n\n=== BEGIN UNTRUSTED DOCUMENT CONTEXT", request["messages"][1]["content"])
         self.assertEqual(result["sources"][0]["documentId"], "document-1")
 
 
