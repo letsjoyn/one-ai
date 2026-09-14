@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+import certifi
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from pymongo import MongoClient
@@ -19,6 +20,7 @@ def get_mongo_client() -> MongoClient:
     return MongoClient(
         settings.mongo_uri,
         serverSelectionTimeoutMS=settings.mongo_server_selection_timeout_ms,
+        tlsCAFile=certifi.where(),
     )
 
 
