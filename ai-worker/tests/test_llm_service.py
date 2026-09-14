@@ -43,6 +43,12 @@ class LlmServiceTests(unittest.TestCase):
         self.assertIn("\n\n=== BEGIN UNTRUSTED DOCUMENT CONTEXT", request["messages"][1]["content"])
         self.assertEqual(result["sources"][0]["documentId"], "document-1")
 
+    def test_greeting_shortcut_returns_zero_sources(self):
+        for greeting in ["hi", "hii", "hello", "hey", "Good Morning", "good afternoon"]:
+            result = build_rag_answer("tenant-1", greeting)
+            self.assertEqual(result["sources"], [])
+            self.assertEqual(result["answer"], "Hi! Ask me a question about your uploaded documents.")
+
 
 if __name__ == "__main__":
     unittest.main()

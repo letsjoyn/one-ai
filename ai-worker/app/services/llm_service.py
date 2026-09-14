@@ -29,7 +29,18 @@ def _format_context(docs) -> str:
     return "\n\n---\n\n".join(sections)
 
 
-def build_rag_answer(user_id: str, query: str, top_k: int = 30) -> dict:
+def build_rag_answer(user_id: str, query: str, top_k: int = 8) -> dict:
+    normalized_query = query.strip().lower()
+
+    if normalized_query in {
+        "hi", "hii", "hello", "hey",
+        "good morning", "good afternoon", "good evening",
+    }:
+        return {
+            "answer": "Hi! Ask me a question about your uploaded documents.",
+            "sources": [],
+        }
+
     settings = get_settings()
     vector_store = get_vector_store()
 
